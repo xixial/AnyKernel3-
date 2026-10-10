@@ -1391,7 +1391,22 @@ jobs:
               fi
             fi
           fi
-          
+
+      - name: 应用 HideSocket 补丁与构建路径伪装
+        run: |
+          set -euo pipefail
+          F="$KERNEL_ROOT/common/net/unix/af_unix.c"
+          echo ">> af_unix.c: $F"
+          [ -f "$F" ] || { echo "::error::af_unix.c 不存在"; exit 1; }
+
+          python3 hidesock.py "$F"
+
+          echo ">> 补丁验证:"
+          grep -n "HIDESOCK" "$F" | head -5
+
+          echo "KCFLAGS=-ffile-prefix-map=${GITHUB_WORKSPACE}/${CONFIG}=/mnt/disks/build-disk/src/android/common-android13-5.15-2025-03" >> "$GITHUB_ENV"
+          echo ">> KCFLAGS written: $(grep KCFLAGS "$GITHUB_ENV")"
+
       - name: 编译内核
         id: compile_kernel
         uses: nick-fields/retry@v4
