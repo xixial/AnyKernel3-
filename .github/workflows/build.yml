@@ -1405,11 +1405,15 @@ jobs:
           grep -n "HIDESOCK" "$F" | head -5
 
           # 路径伪装：bind mount 到 Google 官方构建路径 + 切换 KERNEL_ROOT
-          sudo mkdir -p /mnt/disks/build-disk/src/android
-          sudo mount --bind "$KERNEL_ROOT" /mnt/disks/build-disk/src/android/common-android13-5.15-2025-03
-          ls /mnt/disks/build-disk/src/android/common-android13-5.15-2025-03/common/net/unix/af_unix.c
-          echo "KERNEL_ROOT=/mnt/disks/build-disk/src/android/common-android13-5.15-2025-03" >> "$GITHUB_ENV"
-          echo ">> KERNEL_ROOT switched: $(grep '^KERNEL_ROOT=' "$GITHUB_ENV" | tail -1)"
+          MNT=/mnt/disks/build-disk/src/android/common-android13-5.15-2025-03
+          sudo mkdir -p "$MNT"
+          if ! sudo mount --bind "$KERNEL_ROOT" "$MNT"; then
+            echo "::warning title=bind mount 失败::改用 symlink 兜底"
+            sudo rmdir "$MNT" 2>/dev/null || true
+            sudo ln -sfn "$KERNEL_ROOT" "$MNT"
+          fi
+          ls "$MNT/common/net/unix/af_unix.c"
+          echo "KERNEL_ROOT=$MNT" >> "$GITHUB_ENV"
 
       - name: 编译内核
         id: compile_kernel
