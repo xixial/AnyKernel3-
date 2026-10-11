@@ -8,7 +8,10 @@
 # root / system（uid<10000）行为不变。
 #
 # 用法：在 KERNEL_ROOT 目录下执行（工作目录=KERNEL_ROOT，或 $KERNEL_ROOT 已设置）。
-# 幂等：已应用则跳过；应用失败则警告并跳过（构建不中断）。
+# 幂等：已应用则跳过；应用失败/部分应用则【自动回滚】并警告跳过（构建不中断）。
+# v2 加固（2026-10-11）：① 应用后断言计数（deny=7、backup_state>=3），防“补丁只应用一半”；
+#                       ② 失败/部分应用时先回滚到补丁前原文件，杜绝半打状态进构建；
+#                       ③ 失败与成功都写 GITHUB_STEP_SUMMARY。
 set -eo pipefail
 
 PKG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,30 +28,39 @@ else
 fi
 
 SELFS="$KCOMMON/security/selinux/selinuxfs.c"
+rm -f "$SELFS.rej" "$SELFS.orig"
 
 if grep -q 'selinuxfs_deny_query' "$SELFS"; then
   echo "selinuxfs.c 已包含哨兵过滤，跳过"
   exit 0
 fi
 
-echo "应用 SELinux 哨兵过滤补丁..."
-if ! patch -p1 --forward -d "$KCOMMON" < "$PATCH_FILE"; then
-  echo "::warning title=SELinux 哨兵过滤已跳过::补丁应用失败（内核源码上下文不一致），构建继续"
+BAK="$(mktemp)"
+cp -f "$SELFS" "$BAK"
+
+rollback_and_warn() {
+  cp -f "$BAK" "$SELFS"
+  rm -f "$BAK" "$SELFS.rej" "$SELFS.orig"
+  echo "::warning title=SELinux 哨兵过滤已回滚::$1（构建继续，内核为未打补丁状态）"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     echo "" >> "$GITHUB_STEP_SUMMARY"
-    echo "> ⏭️ **SELinux 哨兵过滤** 已自动跳过：补丁应用失败（构建未中断）" >> "$GITHUB_STEP_SUMMARY"
+    echo "> ⏪ **SELinux 哨兵过滤** 未生效（$1），已回滚为补丁前原文件（构建未中断）" >> "$GITHUB_STEP_SUMMARY"
   fi
   exit 0
+}
+
+echo "应用 SELinux 哨兵过滤补丁..."
+patch -p1 --forward -d "$KCOMMON" < "$PATCH_FILE" || rollback_and_warn "补丁应用失败（源码上下文不一致）"
+
+CT_DENY=$(grep -c 'selinuxfs_deny_query' "$SELFS" || echo 0)
+CT_BAK=$(grep -c 'selinuxfs_backup_state' "$SELFS" || echo 0)
+if [ "$CT_DENY" -ne 7 ] || [ "$CT_BAK" -lt 3 ]; then
+  rollback_and_warn "部分应用（deny=$CT_DENY/7, backup_state=$CT_BAK/3）"
 fi
 
-if ! grep -q 'selinuxfs_deny_query' "$SELFS"; then
-  echo "::warning title=SELinux 哨兵过滤校验失败::应用后未检出过滤代码，构建继续"
-  exit 0
-fi
-
-CNT=$(grep -c 'selinuxfs_deny_query' "$SELFS")
-echo "SELinux 哨兵过滤已应用（命中 $CNT 处：1 定义 + 6 写通道守卫）"
+rm -f "$BAK" "$SELFS.rej" "$SELFS.orig"
+echo "SELinux 哨兵过滤已应用（deny 命中 $CT_DENY 处：1 定义 + 6 写通道守卫；备份作答标记 $CT_BAK 处）"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   echo "" >> "$GITHUB_STEP_SUMMARY"
-  echo "> ✅ **SELinux 哨兵过滤** 已应用：app 侧 ksu/magisk 词探测按 stock 行为返回 EINVAL" >> "$GITHUB_STEP_SUMMARY"
+  echo "> ✅ **SELinux 哨兵过滤** 已应用：app 侧 ksu/magisk 词探测按 stock 行为返回 EINVAL（deny=$CT_DENY, backup_state=$CT_BAK）" >> "$GITHUB_STEP_SUMMARY"
 fi
