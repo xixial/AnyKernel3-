@@ -12,11 +12,13 @@
 # v2 加固（2026-10-11）：① 应用后断言计数（deny=7、backup_state>=3），防“补丁只应用一半”；
 #                       ② 失败/部分应用时先回滚到补丁前原文件，杜绝半打状态进构建；
 #                       ③ 失败与成功都写 GITHUB_STEP_SUMMARY。
+# v5 接线（2026-10-12）：新增 sidtab_hash_stats 备份作答段（依赖哨兵先生效；
+#                       哨兵未生效/缺失时 v5 自动跳过并告警，构建不中断）。
 set -eo pipefail
 
 PKG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCH_FILE="$PKG_DIR/selinuxfs_sentinel.patch"
-[ -f "$PATCH_FILE" ] || { echo "::warning title=SELinux 哨兵过滤已跳过::补丁文件缺失: $PATCH_FILE"; exit 0; }
+V5_PATCH="$PKG_DIR/sidtab_backup_answer.patch"
 
 if [ -f security/selinux/selinuxfs.c ]; then
   KCOMMON="$(pwd)"
@@ -30,37 +32,83 @@ fi
 SELFS="$KCOMMON/security/selinux/selinuxfs.c"
 rm -f "$SELFS.rej" "$SELFS.orig"
 
-if grep -q 'selinuxfs_deny_query' "$SELFS"; then
+# ---------- 第 1 段：哨兵过滤（写通道词过滤 + 备份作答） ----------
+SENT_OK=0
+if [ ! -f "$PATCH_FILE" ]; then
+  echo "::warning title=SELinux 哨兵过滤已跳过::补丁文件缺失: $PATCH_FILE"
+elif grep -q 'selinuxfs_deny_query' "$SELFS"; then
   echo "selinuxfs.c 已包含哨兵过滤，跳过"
-  exit 0
-fi
+  SENT_OK=1
+else
+  BAK="$(mktemp)"
+  cp -f "$SELFS" "$BAK"
 
-BAK="$(mktemp)"
-cp -f "$SELFS" "$BAK"
+  rollback_and_warn() {
+    cp -f "$BAK" "$SELFS"
+    rm -f "$BAK" "$SELFS.rej" "$SELFS.orig"
+    echo "::warning title=SELinux 哨兵过滤已回滚::$1（构建继续，内核为未打补丁状态）"
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      echo "" >> "$GITHUB_STEP_SUMMARY"
+      echo "> ⏪ **SELinux 哨兵过滤** 未生效（$1），已回滚为补丁前原文件（构建未中断）" >> "$GITHUB_STEP_SUMMARY"
+    fi
+  }
 
-rollback_and_warn() {
-  cp -f "$BAK" "$SELFS"
-  rm -f "$BAK" "$SELFS.rej" "$SELFS.orig"
-  echo "::warning title=SELinux 哨兵过滤已回滚::$1（构建继续，内核为未打补丁状态）"
-  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-    echo "" >> "$GITHUB_STEP_SUMMARY"
-    echo "> ⏪ **SELinux 哨兵过滤** 未生效（$1），已回滚为补丁前原文件（构建未中断）" >> "$GITHUB_STEP_SUMMARY"
+  echo "应用 SELinux 哨兵过滤补丁..."
+  if patch -p1 --forward -d "$KCOMMON" < "$PATCH_FILE"; then
+    CT_DENY=$(grep -c 'selinuxfs_deny_query' "$SELFS" || echo 0)
+    CT_BAK=$(grep -c 'selinuxfs_backup_state' "$SELFS" || echo 0)
+    if [ "$CT_DENY" -ne 7 ] || [ "$CT_BAK" -lt 3 ]; then
+      rollback_and_warn "部分应用（deny=$CT_DENY/7, backup_state=$CT_BAK/3）"
+    else
+      rm -f "$BAK" "$SELFS.rej" "$SELFS.orig"
+      echo "SELinux 哨兵过滤已应用（deny 命中 $CT_DENY 处：1 定义 + 6 写通道守卫；备份作答标记 $CT_BAK 处）"
+      if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "> ✅ **SELinux 哨兵过滤** 已应用：app 侧 ksu/magisk 词探测按 stock 行为返回 EINVAL（deny=$CT_DENY, backup_state=$CT_BAK）" >> "$GITHUB_STEP_SUMMARY"
+      fi
+      SENT_OK=1
+    fi
+  else
+    rollback_and_warn "补丁应用失败（源码上下文不一致）"
   fi
-  exit 0
-}
-
-echo "应用 SELinux 哨兵过滤补丁..."
-patch -p1 --forward -d "$KCOMMON" < "$PATCH_FILE" || rollback_and_warn "补丁应用失败（源码上下文不一致）"
-
-CT_DENY=$(grep -c 'selinuxfs_deny_query' "$SELFS" || echo 0)
-CT_BAK=$(grep -c 'selinuxfs_backup_state' "$SELFS" || echo 0)
-if [ "$CT_DENY" -ne 7 ] || [ "$CT_BAK" -lt 3 ]; then
-  rollback_and_warn "部分应用（deny=$CT_DENY/7, backup_state=$CT_BAK/3）"
 fi
 
-rm -f "$BAK" "$SELFS.rej" "$SELFS.orig"
-echo "SELinux 哨兵过滤已应用（deny 命中 $CT_DENY 处：1 定义 + 6 写通道守卫；备份作答标记 $CT_BAK 处）"
-if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-  echo "" >> "$GITHUB_STEP_SUMMARY"
-  echo "> ✅ **SELinux 哨兵过滤** 已应用：app 侧 ksu/magisk 词探测按 stock 行为返回 EINVAL（deny=$CT_DENY, backup_state=$CT_BAK）" >> "$GITHUB_STEP_SUMMARY"
+# ---------- 第 2 段：sidtab_hash_stats 备份作答（依赖哨兵） ----------
+if [ "$SENT_OK" -ne 1 ]; then
+  echo "::warning title=sidtab 备份作答已跳过::依赖的哨兵过滤未生效（v5 需要 selinuxfs_backup_state）"
+elif [ ! -f "$V5_PATCH" ]; then
+  echo "::warning title=sidtab 备份作答已跳过::补丁文件缺失: $V5_PATCH"
+elif grep -q 'v5:sidtab-backup-answer' "$SELFS"; then
+  echo "sidtab 备份作答已应用，跳过"
+else
+  V5_BAK="$(mktemp)"
+  cp -f "$SELFS" "$V5_BAK"
+  rm -f "$SELFS.rej" "$SELFS.orig"
+
+  v5_rollback() {
+    cp -f "$V5_BAK" "$SELFS"
+    rm -f "$V5_BAK" "$SELFS.rej" "$SELFS.orig"
+    echo "::warning title=sidtab 备份作答已回滚::$1（构建继续，该修复未生效）"
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      echo "" >> "$GITHUB_STEP_SUMMARY"
+      echo "> ⏪ **sidtab 备份作答（v5）** 未生效（$1），已回滚为补丁前原文件（构建未中断）" >> "$GITHUB_STEP_SUMMARY"
+    fi
+  }
+
+  echo "应用 sidtab 备份作答补丁（v5）..."
+  if patch -p1 --forward -d "$KCOMMON" < "$V5_PATCH"; then
+    V5_CNT=$(grep -c 'v5:sidtab-backup-answer' "$SELFS" || echo 0)
+    if [ "$V5_CNT" -lt 1 ]; then
+      v5_rollback "部分应用（标记 $V5_CNT/1）"
+    else
+      rm -f "$V5_BAK" "$SELFS.rej" "$SELFS.orig"
+      echo "sidtab 备份作答已应用（标记 $V5_CNT 处）"
+      if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "> ✅ **sidtab 备份作答（v5）** 已应用：app 读 sidtab_hash_stats 从 KSU 前快照作答（entries/buckets/chain 与 stock 一致）" >> "$GITHUB_STEP_SUMMARY"
+      fi
+    fi
+  else
+    v5_rollback "补丁应用失败（源码上下文不一致）"
+  fi
 fi
