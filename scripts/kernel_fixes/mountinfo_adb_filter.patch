@@ -1,0 +1,55 @@
+diff --git a/fs/proc_namespace.c b/fs/proc_namespace.c
+index 4499feb..fa00d71 100644
+--- a/fs/proc_namespace.c
++++ b/fs/proc_namespace.c
+@@ -12,6 +12,12 @@
+ #include <linux/security.h>
+ #include <linux/fs_struct.h>
+ #include <linux/sched/task.h>
++#include <linux/cred.h>
++#include <linux/err.h>
++#include <linux/slab.h>
++#include <linux/dcache.h>
++#include <linux/string.h>
++#include <linux/limits.h>
+ #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+ #include <linux/susfs_def.h>
+ #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+@@ -148,6 +154,18 @@ static int show_mountinfo(struct seq_file *m, struct vfsmount *mnt)
+ 	struct path mnt_path = { .dentry = mnt->mnt_root, .mnt = mnt };
+ 	int err;
+ 
++	/* [v4:mountinfo-adb-filter] hide /adb/modules root entries from app readers */
++	if (current_uid().val >= 10000) {
++		char *v4buf = kmalloc(PATH_MAX, GFP_KERNEL);
++		if (v4buf) {
++			char *v4p = dentry_path(mnt->mnt_root, v4buf, PATH_MAX);
++			bool v4hit = !IS_ERR(v4p) && strstr(v4p, "adb/modules");
++			kfree(v4buf);
++			if (v4hit)
++				return 0;
++		}
++	}
++
+ 	seq_printf(m, "%i %i %u:%u ", r->mnt_id, r->mnt_parent->mnt_id,
+ 		   MAJOR(sb->s_dev), MINOR(sb->s_dev));
+ 	if (sb->s_op->show_path) {
+@@ -293,6 +311,18 @@ static int susfs_show_mountinfo(struct seq_file *m, struct vfsmount *mnt)
+ 	struct path mnt_path = { .dentry = mnt->mnt_root, .mnt = mnt };
+ 	int err;
+ 
++	/* [v4:mountinfo-adb-filter] hide /adb/modules root entries from app readers */
++	if (current_uid().val >= 10000) {
++		char *v4buf = kmalloc(PATH_MAX, GFP_KERNEL);
++		if (v4buf) {
++			char *v4p = dentry_path(mnt->mnt_root, v4buf, PATH_MAX);
++			bool v4hit = !IS_ERR(v4p) && strstr(v4p, "adb/modules");
++			kfree(v4buf);
++			if (v4hit)
++				return 0;
++		}
++	}
++
+ 	if (r->mnt_id >= DEFAULT_KSU_MNT_ID)
+ 		return 0;
+ 
