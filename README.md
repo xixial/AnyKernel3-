@@ -61,7 +61,7 @@
 ### 0. 原料
 | 项 | 说明 |
 |---|---|
-| **底料（模板）** | 官方完整刷机包内 `boot.img`：`D:\Tools\K70\1\vermeer_images_OS3.0.9.0.WNKCNXM_16.0\images\boot.img`（**永不回写**；md5 `6626b33239149a3abcbd8f887108472a`） |
+| **底料（模板）** | 官方完整刷机包内 `boot.img`：`D:\Tools\K70\1\vermeer_images_OS3.0.9.0.WNKCNXM_16.0\images\boot.img`（**永不回写**；md5 `6626b33239149a3abcbd8f887108472a`）。**本仓库 Releases 页另有存档副本**（`official-baseline-*` 资产，同 md5，供 D 盘不可用时取用） |
 | **新内核** | 构建产物 zip 内的 `Image`（AnyKernel3 zip 根目录） |
 | 环境 | Windows + Python3 标准库（无第三方依赖） |
 
@@ -166,7 +166,44 @@ print(f"[6] 定稿: {len(data)} B | md5={md5} | crc32=0x{crc:08x}")
 
 ---
 
-## 四、血泪教训（构建与组装）
+## 四、组装件并入线刷包（MiFlash 整包刷入用）★
+
+> 场景：让**重新组装的 boot.img** 跟完整线刷包（如 `G:\大肥鱼\K70_debloat_root_OS3.0.9.0\`）一起，用 MiFlash 整包刷入。
+> **核心原理：包内 `images\crclist.txt` 是设备 bootloader 的完整性校验表（由刷机脚本 `fastboot flash crclist` 刷入设备）——
+> 换了 boot.img 就必须同步重算其 CRC32，否则设备拒绝引导。**
+
+### 包内关键件速览
+| 件 | 作用 |
+|---|---|
+| `images\boot.img` | 目标：我们要替换的内核分区映像（当前替换件尺寸必须保持 **100,663,296 B**） |
+| `images\crclist.txt` | 校验表：`<分区名> 0x<crc32>` 逐行（含 `boot_ab 0x……` 行） |
+| `images\sparsecrclist.txt` | 稀疏块校验表（super/userdata 等） |
+| `flash_gen_crc_list_py3.py` | **校验表生成器**（读取 images 全部映像 → 重写上述两表） |
+| `校验清单_md5.txt` | 人读用整体清单（md5） |
+| `flash_all.bat` / `刷机-带日志.bat` | 刷机脚本（循环含 `flash crclist` / `flash boot_ab` 等） |
+
+### 并入七步
+1. **组装**新 boot.img（第三章 · 2512 铁律 + 六项验证电池全过）；
+2. **原件备份**（回退用）：把 `images\boot.img`、`images\crclist.txt`、`images\sparsecrclist.txt`、`校验清单_md5.txt` 四件复制到他处存档；
+3. **替换**：`images\boot.img` ← 新组装件（尺寸同为 100,663,296 B——inplace 组装天然保持）；
+4. **重算校验表**：在包根目录执行
+   ```
+   python flash_gen_crc_list_py3.py
+   ```
+   （自动读 images 全部映像 → 重写 `crclist.txt` + `sparsecrclist.txt`）；
+5. **核对**：`crclist.txt` 中 `boot_ab 0x????????` 新值 == 新 boot.img 的 CRC32（小写 8 位；示例：旧件 b7358e33 对应 `boot_ab 0x86b453ed`）；同步更新 `校验清单_md5.txt` 中 boot.img 行；
+6. **刷入（机主操作）**：MiFlash 或包内 `刷机-带日志.bat`；**绝不使用任何带 `lock` 的刷机模式/脚本**（`flash_all_lock.*` 会回锁 BL）；
+7. **回退**：把第 2 步备份的四件放回原位（或用官方原包重刷）。
+
+### 红线与原理备注
+- **crclist 必须同步**：`boot_ab` 的 CRC 与实际 boot 分区不符 → 设备拒绝引导（最易漏的一步）；
+- `vbmeta.img` / `vbmeta_system.img` 保持官方原版不动 → verity 判定与 `ro.boot.veritymode` 不受影响；
+- A/B 双槽：`boot_ab` 目标一次覆盖两槽，仅需替换一次；
+- 内容变、尺寸不变 → 包内其余引用（分区表、脚本行）零改动。
+
+---
+
+## 五、血泪教训（构建与组装）
 
 1. **2512 铁律**：MZ@+0 = 卡米。任何新组装脚本必须先跑「验证电池」全绿再交付；
 2. **唯一产物**：一个文件一个名字（曾因同一字节双命名（boot_v3.img / boot.img）引发混乱）；
