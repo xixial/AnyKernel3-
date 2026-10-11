@@ -1,5 +1,5 @@
 diff --git a/security/selinux/selinuxfs.c b/security/selinux/selinuxfs.c
-index 13be782..d4f9635 100644
+index 13be782..9193ebc 100644
 --- a/security/selinux/selinuxfs.c
 +++ b/security/selinux/selinuxfs.c
 @@ -31,6 +31,7 @@
@@ -10,7 +10,7 @@ index 13be782..d4f9635 100644
  
  /* selinuxfs pseudo filesystem for exporting the security policy API.
     Based on the proc code and the fs/nfsd/nfsctl.c code. */
-@@ -674,6 +675,48 @@ static const struct file_operations sel_load_ops = {
+@@ -674,6 +675,69 @@ static const struct file_operations sel_load_ops = {
  	.llseek		= generic_file_llseek,
  };
  
@@ -56,22 +56,70 @@ index 13be782..d4f9635 100644
 +	return false;
 +}
 +
++/*
++ * KernelSU keeps a boot-time snapshot of the policy before it applied
++ * its own rules (backup_sepolicy). Answering app-UID queries from that
++ * snapshot makes a modified kernel read like a stock one to policy
++ * fingerprinting. Weak symbols: kernels without KernelSU (or variants
++ * without the snapshot) fall back to the live policy untouched.
++ */
++struct selinux_policy;
++extern struct selinux_policy *backup_sepolicy __attribute__((weak));
++
++static struct selinux_state *selinuxfs_backup_state(struct selinux_state *tmp)
++{
++	if (!&backup_sepolicy || !backup_sepolicy)
++		return NULL;
++
++	memset(tmp, 0, sizeof(*tmp));
++	tmp->initialized = true;
++	tmp->policy = backup_sepolicy;
++	return tmp;
++}
++
  static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
  {
  	struct selinux_fs_info *fsi = file_inode(file)->i_sb->s_fs_info;
-@@ -688,6 +731,11 @@ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
+@@ -688,6 +752,30 @@ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
  	if (length)
  		goto out;
  
 +	if (__kuid_val(current_uid()) >= 10000 && selinuxfs_deny_query(buf, size)) {
 +		length = -EINVAL;
 +		goto out;
++	}
++
++	if (__kuid_val(current_uid()) >= 10000) {
++		struct selinux_state bstate;
++		struct selinux_state *bst = selinuxfs_backup_state(&bstate);
++
++		if (bst) {
++			u32 tmp;
++
++			length = security_context_to_sid(bst, buf, size, &sid, GFP_KERNEL);
++			if (length)
++				goto out;
++			/* keep the live sidtab in sync, exactly like the stock path */
++			security_context_to_sid(state, buf, size, &tmp, GFP_KERNEL);
++			length = security_sid_to_context(bst, sid, &canon, &len);
++			if (length)
++				goto out;
++			goto have_context;
++		}
 +	}
 +
  	length = security_context_to_sid(state, buf, size, &sid, GFP_KERNEL);
  	if (length)
  		goto out;
-@@ -922,6 +970,11 @@ static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
+@@ -696,6 +784,7 @@ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
+ 	if (length)
+ 		goto out;
+ 
++have_context:
+ 	length = -ERANGE;
+ 	if (len > SIMPLE_TRANSACTION_LIMIT) {
+ 		pr_err("SELinux: %s:  context size (%u) exceeds "
+@@ -922,6 +1011,11 @@ static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
  	if (length)
  		goto out;
  
@@ -83,7 +131,44 @@ index 13be782..d4f9635 100644
  	length = -ENOMEM;
  	scon = kzalloc(size + 1, GFP_KERNEL);
  	if (!scon)
-@@ -977,6 +1030,11 @@ static ssize_t sel_write_create(struct file *file, char *buf, size_t size)
+@@ -936,6 +1030,28 @@ static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
+ 	if (sscanf(buf, "%s %s %hu", scon, tcon, &tclass) != 3)
+ 		goto out;
+ 
++	if (__kuid_val(current_uid()) >= 10000) {
++		struct selinux_state bstate;
++		struct selinux_state *bst = selinuxfs_backup_state(&bstate);
++
++		if (bst) {
++			u32 tmp;
++
++			length = security_context_str_to_sid(bst, scon, &ssid, GFP_KERNEL);
++			if (length)
++				goto out;
++			security_context_str_to_sid(state, scon, &tmp, GFP_KERNEL);
++			length = security_context_str_to_sid(bst, tcon, &tsid, GFP_KERNEL);
++			if (length)
++				goto out;
++			security_context_str_to_sid(state, tcon, &tmp, GFP_KERNEL);
++			security_compute_av_user(bst, ssid, tsid, tclass, &avd);
++			/* a stock guest reads seqno 1 */
++			avd.seqno = 1;
++			goto have_av;
++		}
++	}
++
+ 	length = security_context_str_to_sid(state, scon, &ssid, GFP_KERNEL);
+ 	if (length)
+ 		goto out;
+@@ -946,6 +1062,7 @@ static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
+ 
+ 	security_compute_av_user(state, ssid, tsid, tclass, &avd);
+ 
++have_av:
+ 	length = scnprintf(buf, SIMPLE_TRANSACTION_LIMIT,
+ 			  "%x %x %x %x %u %x",
+ 			  avd.allowed, 0xffffffff,
+@@ -977,6 +1094,11 @@ static ssize_t sel_write_create(struct file *file, char *buf, size_t size)
  	if (length)
  		goto out;
  
@@ -95,7 +180,7 @@ index 13be782..d4f9635 100644
  	length = -ENOMEM;
  	scon = kzalloc(size + 1, GFP_KERNEL);
  	if (!scon)
-@@ -1079,6 +1137,11 @@ static ssize_t sel_write_relabel(struct file *file, char *buf, size_t size)
+@@ -1079,6 +1201,11 @@ static ssize_t sel_write_relabel(struct file *file, char *buf, size_t size)
  	if (length)
  		goto out;
  
@@ -107,7 +192,7 @@ index 13be782..d4f9635 100644
  	length = -ENOMEM;
  	scon = kzalloc(size + 1, GFP_KERNEL);
  	if (!scon)
-@@ -1140,6 +1203,11 @@ static ssize_t sel_write_user(struct file *file, char *buf, size_t size)
+@@ -1140,6 +1267,11 @@ static ssize_t sel_write_user(struct file *file, char *buf, size_t size)
  	if (length)
  		goto out;
  
@@ -119,7 +204,7 @@ index 13be782..d4f9635 100644
  	length = -ENOMEM;
  	con = kzalloc(size + 1, GFP_KERNEL);
  	if (!con)
-@@ -1205,6 +1273,11 @@ static ssize_t sel_write_member(struct file *file, char *buf, size_t size)
+@@ -1205,6 +1337,11 @@ static ssize_t sel_write_member(struct file *file, char *buf, size_t size)
  	if (length)
  		goto out;
  
