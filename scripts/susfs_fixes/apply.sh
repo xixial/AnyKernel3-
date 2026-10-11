@@ -389,3 +389,50 @@ else
     fi
   fi
 fi
+
+# ============================================================
+# v4: mountinfo 的 /adb/modules 条目对 app 读者过滤（Luna 对抗 · 内核侧）
+# 背景：GGAT_10007 等模块的 bind mount（root 字段含 adb/modules）可从系统进程的
+# 挂载表被 app（app_zygote carrier）读到 → 命中"挂载异常 / Mount token"检测。
+# 本段在 fs/proc_namespace.c 的两个 mountinfo 输出函数中，对 uid≥10000 的读者
+# 跳过 root 含 "adb/modules" 的条目（root/system 读者不受影响）。
+# 幂等：已应用（标记 [v4:mountinfo-adb-filter] x2）则跳过；失败自动回滚并写 summary。
+# ============================================================
+V4_PATCH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../kernel_fixes/mountinfo_adb_filter.patch"
+PNS=fs/proc_namespace.c
+if [ ! -f "$PNS" ]; then
+  echo "::warning title=mountinfo /adb 过滤已跳过::未找到 $PNS"
+elif [ ! -f "$V4_PATCH" ]; then
+  echo "::warning title=mountinfo /adb 过滤已跳过::补丁文件缺失: $V4_PATCH"
+elif grep -q 'v4:mountinfo-adb-filter' "$PNS"; then
+  echo "mountinfo /adb 过滤已应用，跳过"
+else
+  V4_BAK="$(mktemp)"
+  cp -f "$PNS" "$V4_BAK"
+  rm -f "$PNS.rej" "$PNS.orig"
+  v4_rollback() {
+    cp -f "$V4_BAK" "$PNS"
+    rm -f "$V4_BAK" "$PNS.rej" "$PNS.orig"
+    echo "::warning title=mountinfo /adb 过滤已回滚::$1（构建继续，该修复未生效）"
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      echo "" >> "$GITHUB_STEP_SUMMARY"
+      echo "> ⏪ **mountinfo /adb 过滤（v4）** 未生效（$1），已回滚为补丁前原文件（构建未中断）" >> "$GITHUB_STEP_SUMMARY"
+    fi
+  }
+  echo "应用 mountinfo /adb 过滤补丁..."
+  if ! patch -p1 --forward < "$V4_PATCH"; then
+    v4_rollback "补丁应用失败（源码上下文不一致）"
+  else
+    V4_CNT=$(grep -c 'v4:mountinfo-adb-filter' "$PNS" || echo 0)
+    if [ "$V4_CNT" -lt 2 ]; then
+      v4_rollback "部分应用（标记计数 $V4_CNT/2）"
+    else
+      rm -f "$V4_BAK" "$PNS.rej" "$PNS.orig"
+      echo "mountinfo /adb 过滤已应用（标记 $V4_CNT 处）"
+      if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "> ✅ **mountinfo /adb 过滤（v4）** 已应用：app 读者看不到 root 含 adb/modules 的挂载条目" >> "$GITHUB_STEP_SUMMARY"
+      fi
+    fi
+  fi
+fi
