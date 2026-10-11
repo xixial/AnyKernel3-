@@ -1,0 +1,133 @@
+diff --git a/security/selinux/selinuxfs.c b/security/selinux/selinuxfs.c
+index 13be782..d4f9635 100644
+--- a/security/selinux/selinuxfs.c
++++ b/security/selinux/selinuxfs.c
+@@ -31,6 +31,7 @@
+ #include <linux/uaccess.h>
+ #include <linux/kobject.h>
+ #include <linux/ctype.h>
++#include <linux/cred.h>
+ 
+ /* selinuxfs pseudo filesystem for exporting the security policy API.
+    Based on the proc code and the fs/nfsd/nfsctl.c code. */
+@@ -674,6 +675,48 @@ static const struct file_operations sel_load_ops = {
+ 	.llseek		= generic_file_llseek,
+ };
+ 
++/*
++ * SELinuxFS deny-word sentinel filter.
++ *
++ * A stock kernel's policy never contains ksu/magisk/susfs/apatch/supersu
++ * words, so any app-uid query that mentions them must fail exactly the way
++ * a stock kernel fails: unknown type -> -EINVAL. Root and system callers
++ * (uid < 10000) keep the original behavior untouched.
++ */
++static const char *const selinuxfs_deny_words[] = {
++	"ksu",
++	"magisk",
++	"susfs",
++	"apatch",
++	"supersu",
++};
++
++static bool selinuxfs_deny_query(const char *buf, size_t size)
++{
++	size_t i, j, k;
++
++	for (i = 0; i < ARRAY_SIZE(selinuxfs_deny_words); i++) {
++		const char *w = selinuxfs_deny_words[i];
++		size_t wl = strlen(w);
++
++		if (wl > size)
++			continue;
++		for (j = 0; j + wl <= size; j++) {
++			for (k = 0; k < wl; k++) {
++				char c = buf[j + k];
++
++				if (c >= 'A' && c <= 'Z')
++					c += 'a' - 'A';
++				if (c != w[k])
++					break;
++			}
++			if (k == wl)
++				return true;
++		}
++	}
++	return false;
++}
++
+ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
+ {
+ 	struct selinux_fs_info *fsi = file_inode(file)->i_sb->s_fs_info;
+@@ -688,6 +731,11 @@ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
+ 	if (length)
+ 		goto out;
+ 
++	if (__kuid_val(current_uid()) >= 10000 && selinuxfs_deny_query(buf, size)) {
++		length = -EINVAL;
++		goto out;
++	}
++
+ 	length = security_context_to_sid(state, buf, size, &sid, GFP_KERNEL);
+ 	if (length)
+ 		goto out;
+@@ -922,6 +970,11 @@ static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
+ 	if (length)
+ 		goto out;
+ 
++	if (__kuid_val(current_uid()) >= 10000 && selinuxfs_deny_query(buf, size)) {
++		length = -EINVAL;
++		goto out;
++	}
++
+ 	length = -ENOMEM;
+ 	scon = kzalloc(size + 1, GFP_KERNEL);
+ 	if (!scon)
+@@ -977,6 +1030,11 @@ static ssize_t sel_write_create(struct file *file, char *buf, size_t size)
+ 	if (length)
+ 		goto out;
+ 
++	if (__kuid_val(current_uid()) >= 10000 && selinuxfs_deny_query(buf, size)) {
++		length = -EINVAL;
++		goto out;
++	}
++
+ 	length = -ENOMEM;
+ 	scon = kzalloc(size + 1, GFP_KERNEL);
+ 	if (!scon)
+@@ -1079,6 +1137,11 @@ static ssize_t sel_write_relabel(struct file *file, char *buf, size_t size)
+ 	if (length)
+ 		goto out;
+ 
++	if (__kuid_val(current_uid()) >= 10000 && selinuxfs_deny_query(buf, size)) {
++		length = -EINVAL;
++		goto out;
++	}
++
+ 	length = -ENOMEM;
+ 	scon = kzalloc(size + 1, GFP_KERNEL);
+ 	if (!scon)
+@@ -1140,6 +1203,11 @@ static ssize_t sel_write_user(struct file *file, char *buf, size_t size)
+ 	if (length)
+ 		goto out;
+ 
++	if (__kuid_val(current_uid()) >= 10000 && selinuxfs_deny_query(buf, size)) {
++		length = -EINVAL;
++		goto out;
++	}
++
+ 	length = -ENOMEM;
+ 	con = kzalloc(size + 1, GFP_KERNEL);
+ 	if (!con)
+@@ -1205,6 +1273,11 @@ static ssize_t sel_write_member(struct file *file, char *buf, size_t size)
+ 	if (length)
+ 		goto out;
+ 
++	if (__kuid_val(current_uid()) >= 10000 && selinuxfs_deny_query(buf, size)) {
++		length = -EINVAL;
++		goto out;
++	}
++
+ 	length = -ENOMEM;
+ 	scon = kzalloc(size + 1, GFP_KERNEL);
+ 	if (!scon)
