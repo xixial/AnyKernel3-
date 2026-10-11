@@ -1,233 +1,179 @@
-<div align="center">
+# AnyKernel3- · Redmi K70 内核构建线（私有）
 
-# GKI KernelSU SUSFS
-
-**Automated GKI Kernel Builds | SukiSU / BakaSU + SUSFS Integration**
-
-[![Release](https://img.shields.io/github/v/release/LingLuo17/AnyKernel3?label=Release&style=flat-square&logo=github&logoColor=white&color=2ea44f)](https://github.com/LingLuo17/AnyKernel3/releases)
-[![Coolapk](https://img.shields.io/badge/Follow-Coolapk-3DDC84?style=flat-square&logo=android&logoColor=white)](http://www.coolapk.com/u/38407386)
-[<img src="https://img.shields.io/badge/Join-QQ%20Group-blue?style=flat-square&logo=github&logoColor=white">](https://qm.qq.com/q/PZIFvlcbqU)
-[![SukiSU](https://img.shields.io/badge/SukiSU-Supported-5AA300?style=flat-square)](https://sukisu.org/)
-[![BakaSU](https://img.shields.io/badge/BakaSU-Supported-5AA300?style=flat-square)](https://bakasu.org/)
-[![SUSFS](https://img.shields.io/badge/SUSFS-Integrated-E67E22?style=flat-square)](https://gitlab.com/simonpunk/susfs4ksu)
-
-**English** | [简体中文](#chinese)
-
-</div>
-
-## 📖 Introduction
-
-Built upon [AnyKernel3](https://github.com/osm0sis/AnyKernel3), this repository uses GitHub Actions to automatically compile Android GKI kernels. It integrates multiple KernelSU variants and SUSFS kernel-level spoofing solutions Add practical patches such as ZRAM and BBG.
-
-- The build workflows are adapted from [zzh20188/GKI_KernelSU_SUSFS](https://github.com/zzh20188/GKI_KernelSU_SUSFS) and [Wild Kernels](https://github.com/WildKernels/GKI_KernelSU_SUSFS)
-- Flashing rule: ***It can be flashed as long as the kernel version matches.***
-
-## 📦 Supported Kernel Versions
-
-| Android | Kernel Version | Manual Workflow |
-|:---:|:---:|:---:|
-| 12 | 5.10 | `kernel-a12-5-10.yml` |
-| 13 | 5.15 | `kernel-a13-5-15.yml` |
-| 14 | 6.1 | `kernel-a14-6-1.yml` |
-| 15 | 6.6 | `kernel-a15-6-6.yml` |
-| 16 | 6.12 | `kernel-a16-6-12.yml` |
-| Custom | Any | `kernel-custom.yml` |
-
-## ✨ Features
-
-| Feature | Description |
-|:---|:---|
-| 🔐 KernelSU Variants | Supports SukiSU / BakaSU variants, selectable at build time |
-| 🙈 SUSFS | Kernel-level hiding working with KSU to complete environment spoofing |
-| 💾 ZRAM LZ4 | ZRAM Compression Algorithm Patch |
-| 🛡️ BBG (Baseband Guard) | BBG patch to protect the baseband partitions from accidental wipe |
-| 🌐 Network enhancement | Optional IPSet + BBR kernel config (BBR default congestion control, fq/fq_codel qdisc, full IPSet types up to 65534 sets, IPv6 NAT/masquerade, extra congestion algorithms) |
-| ⚡ KPM | Optional KPM feature / build-time patching |
-| 🔔 Re-Kernel | Optional Re-Kernel driver integration |
-| 🩹 CVE-2026-43499 | Optional automatic application of the rtmutex fix |
-| 📱 OnePlus Snapdragon 8 Elite / Gen5 Support | Optional: Add support for OnePlus Snapdragon 8 Elite / Gen5 processor |
-| 🐳 Droidspaces | Optional container support with NTSync kernel compatibility patch |
-| 🧩 Skip Incompatible | Optional: auto-skip incompatible or unusable features (except SUSFS and OnePlus 8 Elite/Gen5 support) instead of failing the build |
-
-## 🚀 Usage
-
-1. **Fork this repository** (or use it directly)
-2. Go to the **Actions** page and pick the workflow for your kernel version
-3. Click **Run workflow** and fill in the parameters as needed:
-   - `android_version` / `kernel_version` / `sub_level` / `os_patch_level`
-   - `ksu_variant`: KernelSU variant (SukiSU / BakaSU)
-   - Feature switches: `enable_susfs`, `use_zram`, `use_bbg`, `use_net_enhance`, `use_kpm`, `skip_incompatible`, etc.
-4. Once the build finishes, download the **Artifacts** from the run page:
-   - `AnyKernel3.zip` — flashable zip (recommended; flash via custom Recovery or KSU)
-   - `boot.img` / `boot-gz.img` / `boot-lz4.img` — boot images for each compression format
-
-> 💡 Artifacts are uploaded as Actions Artifacts by default and are not auto-published as Releases. Failed runs additionally upload build logs (`Build-Logs`) and patch conflict records (`Rejects`) for troubleshooting.
-
-## 🔧 Custom Commit Configuration
-
-The [`config/config`](config/config) file lets you pin specific commits for SUSFS and SukiSU.
-
-**What is a commit?**
-
-A commit is a hash string representing the state of a repository at a certain point in time. For example, setting SukiSU to `4b8644515fe6d87a109129e590ccd9d33a855dca` means the kernel will be built with the SukiSU version from January 30.
-
-**Why pin a commit?**
-
-- Roll back to a stable version when upstream updates introduce bugs or compatibility issues
-- Manually specify a compatible version when SUSFS and SukiSU are out of sync and the build fails
-
-**How to get a commit hash?**
-
-- SUSFS: [susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) (GitLab → Repository → Commits)
-- SukiSU: [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/commits) (GitHub commit history page)
-
-## 🛠️ Recommended After Installation
-### 🔧 Xposed Modules
-| Module | Description |
-|:---:|:---|
-| **FuseFixer** | [Unicode zero-width character fix module](https://github.com/5ec1cff/FuseFixer) |
-
-## 🙏 Acknowledgments
-
-- [osm0sis/AnyKernel3](https://github.com/osm0sis/AnyKernel3)
-- [zzh20188/GKI_KernelSU_SUSFS](https://github.com/zzh20188/GKI_KernelSU_SUSFS) / [WildKernels/GKI_KernelSU_SUSFS](https://github.com/WildKernels/GKI_KernelSU_SUSFS)
-- [SukiSU](https://sukisu.org/) / [BakaSU](https://bakasu.org/)
-- [SUSFS](https://gitlab.com/simonpunk/susfs4ksu)
-
-<div align="center">
-
-## ⚠️ Disclaimer
-
-</div>
-
-- Flashing this kernel will not void your warranty, but there is always a risk of bricking your device. Please make sure to:
-- 💾 Back up your data
-- 🧠 Understand the risks before proceeding
-
-- Please make sure to back up the original boot image of this system in advance.
-
-- If flashing AnyKernel3 causes your device to enter an infinite boot loop or fail to boot, enter BootLoader and flash the original boot image back.
-
-- I take no responsibility for any issues caused by flashing this kernel.
-
-<div align="center">
-  
-# **🚨 Proceed at your own risk!**
-
-</div>
+> 本仓库 fork 自 [LingLuo17/AnyKernel3](https://github.com/LingLuo17/AnyKernel3)（已与上游脱钩、独立维护）。
+> 承载 Redmi K70（vermeer / 23113RKC6C）的定制内核构建线：
+> **SukiSU + SUSFS + 自研 SELinux 防护补丁（哨兵 / v3 / v4 / v5）**。
+> 构建走 GitHub Actions（手动触发）；**设备刷入与一切决策由机主本人执行**。
 
 ---
 
-<div align="center">
+## 一、构建方法（手动触发）
 
-<a id="chinese"></a>
+**入口**：Actions → 「Android 内核构建-自定义」（`kernel-custom.yml`）
+直达：`https://github.com/xixial/AnyKernel3-/actions/workflows/kernel-custom.yml` → 右上 **Run workflow**
 
-# GKI KernelSU SUSFS
+**表单标准值（K70）：**
 
-**自动化构建 GKI 内核 | 集成 SukiSU/BakaSU + SUSFS**
+| 字段 | 值 |
+|---|---|
+| 内核版本 | **5.15** |
+| 5.15 子版本 | **`178 (2025-03)`**（勿选 auto） |
+| KernelSU 变体 | **SukiSU** |
+| 自定义版本名 / 构建时间 | 留空 |
+| use_kpm | disabled (关闭) |
+| droidspaces / droidspaces_ntsync | off / false |
+| artifact_upload_mode | 建议「上传全部」（排错时可直接拿到日志） |
+| use_zram / use_bbg / use_net_enhance / use_rekernel | 按需（默认即可，与防护线无关） |
+| **cancel_susfs** | **必须保持 false**（红线：勾选=整条 SUSFS 防线摘除） |
+| supp_op / skip_incompatible | 默认 |
 
-[English](#gki-kernelsu-susfs) | **简体中文**
+**成功标志**（run 页 Summary 四行）：
+```
+✅ 哨兵过滤（deny=7）
+✅ sidtab 快照作答（v5）
+✅ setprocattr 计数对齐（v3）
+✅ mountinfo /adb 过滤（v4）
+日志应现：切换 SUSFS 到自定义提交: 687d2d18…（钉版生效证据）
+```
 
-</div>
+**产物**：`SukiSU_kernel-android13-5.15-178-AnyKernel3`（zip，约 23MB）＝ 内含 `Image` 的刷机包。
 
-## 📖 简介
+---
 
-本仓库基于 [AnyKernel3](https://github.com/osm0sis/AnyKernel3) 构建，通过 GitHub Actions 自动编译 **Android GKI 内核**，集成多种 KernelSU 变体与 SUSFS 内核级隐藏方案并附加 ZRAM、BBG等实用补丁。
+## 二、内核侧补丁体系
 
-- 构建工作流修改自 [zzh20188/GKI_KernelSU_SUSFS](https://github.com/zzh20188/GKI_KernelSU_SUSFS) 与 [Wild Kernels](https://github.com/WildKernels/GKI_KernelSU_SUSFS)
-- 刷入规则：***只要内核版本匹配即可刷入***
+| 执行段 | 补丁 | 作用 |
+|---|---|---|
+| `kernel_fixes`（SUSFS **前**） | `selinuxfs_sentinel.patch` | app 侧 selinuxfs 写查询：敏感词过滤 + 备份策略作答（6 写通道） |
+| `kernel_fixes` | `sidtab_backup_answer.patch`（v5） | app 读 `sidtab_hash_stats` 走 KSU 前快照（Luna 抓包实锤的泄漏通道） |
+| `susfs_fixes`（SUSFS **后**） | `setprocattr_avc_align.patch`（v3） | `my_setprocattr` skip-path 的 AVC 查询计数对齐 stock（1/1） |
+| `susfs_fixes` | `mountinfo_adb_filter.patch`（v4） | app 读者看不到 root 含 adb/modules 的 mountinfo 条目 |
 
-## 📦 支持的内核版本
+- 各段脚本特性：**幂等标记 / 应用后断言 / 失败自动回滚（构建不中断）/ 写 GITHUB_STEP_SUMMARY**。
+- **SUSFS 版本钉定**：`config/config` → `custom=true` + `gki-android13-5.15=687d2d18d94cb2e3e72d1074778d58384d58e379`
+  （上游分支 HEAD 曾于 2026-10-12 推入与哨兵撞车的提交 → `-Werror` 构建失败；钉版为事故前最后干净提交）。
+- **fusion v2**（新版 SUSFS 适配：哨兵-LITE + v3 退役 + v5 保留）＝ 已备料，独立仓库 **susfs-fusion** 管理，切换时改本仓 `config` 值 + 两段脚本。
 
-| Android | 内核版本 | 手动触发工作流 |
-|:---:|:---:|:---:|
-| 12 | 5.10 | `kernel-a12-5-10.yml` |
-| 13 | 5.15 | `kernel-a13-5-15.yml` |
-| 14 | 6.1 | `kernel-a14-6-1.yml` |
-| 15 | 6.6 | `kernel-a15-6-6.yml` |
-| 16 | 6.12 | `kernel-a16-6-12.yml` |
-| 自定义 | 任意 | `kernel-custom.yml` |
+---
 
-## ✨ 功能特性
+## 三、boot.img 组装方法（完整 · 2512 铁律版）★
 
-| 特性 | 说明 |
-|:---|:---|
-| 🔐 KernelSU 变体 | 支持 SukiSU / BakaSU 变体，构建时按需选择 |
-| 🙈 SUSFS | 内核级隐藏，配合 KSU 完成环境伪装 |
-| 💾 ZRAM LZ4 | ZRAM 压缩算法补丁 |
-| 🛡️ BBG 基带保护 | BBG（BaseBand Guard）补丁，保护基带分区，防止基带被意外擦除 |
-| 🌐 网络增强 | 可选 IPSet + BBR 内核配置（BBR 默认拥塞控制 + fq/fq_codel 队列 + IPSet 全类型，集合上限 65534 + IPv6 NAT/伪装 + 附加拥塞算法） |
-| ⚡ KPM | 可选开启 KPM 功能 / 构建期修补 |
-| 🔔 Re-Kernel | 可选集成 Re-Kernel 驱动 |
-| 🩹 CVE-2026-43499 | 可选自动应用 rtmutex 修复补丁 |
-| 📱 一加 骁龙8 Elite/Gen5 支持 | 可选添加一加 骁龙8 Elite/Gen5 处理器支持 |
-| 🐳 Droidspaces | 可选容器支持及 NTSync 内核兼容补丁 |
-| 🧩 兼容跳过 | 可选：功能不兼容或无法使用时自动跳过该功能（SUSFS 与 一加 骁龙8 Elite/Gen5 支持除外，二者失败仍会中断构建），不中断构建 |
+### 0. 原料
+| 项 | 说明 |
+|---|---|
+| **底料（模板）** | 官方完整刷机包内 `boot.img`：`D:\Tools\K70\1\vermeer_images_OS3.0.9.0.WNKCNXM_16.0\images\boot.img`（**永不回写**；md5 `6626b33239149a3abcbd8f887108472a`） |
+| **新内核** | 构建产物 zip 内的 `Image`（AnyKernel3 zip 根目录） |
+| 环境 | Windows + Python3 标准库（无第三方依赖） |
 
-## 🚀 使用方法
+### 1. 铁律布局（★★★ 违反必卡米）
+内核段（boot.img 内 `[header_size, header_size+kernel_size)` 区间）必须为：
+```
+[ 2512 字节 0x00 ][ 新 Image（MZ 从 +2512 开始）][ 余量补 0 ]
+                          └─ 设备引导链要求内核 MZ 魔数位于「段内偏移 2512」
+```
+> **历史事故**：任何把 Image 放在段内 `+0` 的组装（早期 build-boot2.py）→ **卡米（bootloop）**。
+> 同款坑历史上出现过两次（史称「移位 2512」），本布局为唯一正确解。
 
-1. **Fork 本仓库**（或直接使用本仓库）
-2. 进入 **Actions** 页面，选择对应内核版本的工作流
-3. 点击 **Run workflow**，按需填写参数：
-   - `android_version` / `kernel_version` / `sub_level` / `os_patch_level`
-   - `ksu_variant`：KernelSU 变体（SukiSU / BakaSU）
-   - 功能开关：`enable_susfs`、`use_zram`、`use_bbg`、`use_net_enhance`、`use_kpm`、`skip_incompatible` 等 
-4. 构建完成后，在本次运行页面下载 **Artifacts**：
-   - `AnyKernel3.zip` —— 卡刷包（推荐，配合自定义 Recovery 或 KSU 刷入）
-   - `boot.img` / `boot-gz.img` / `boot-lz4.img` —— 每种压缩格式的 boot 镜像
+### 2. 组装步骤
+1. 从产物 zip 取 `Image`，记录长度 + md5；
+2. 读官方 boot.img 为字节数组，解析头部两个字段（小端 u32）：
+   - `kernel_size` == 偏移 **8** 处 4 字节
+   - `header_size` == 偏移 **20** 处 4 字节
+3. **容量检查**：`len(Image) + 2512 <= kernel_size`（不满足=内核体积超标，先停下排查）；
+4. **旧件存档**：把当前 `boot.img` 复制为 `boot.img.bak-<旧md5前8位>`（已存在则跳过）；
+5. **段内重组装**：`new_seg = 零×2512 + Image + 零×(kernel_size − 2512 − len(Image))`；
+6. **写回段区**：`boot[header_size : header_size+kernel_size] = new_seg`（**头部区与段后区一字不动**）；
+7. 写出**唯一产物** `G:\ak3\boot\boot.img`（一个文件一个名字）。
 
-> 💡 产物默认上传为 Actions Artifacts，不自动发布 Release；失败时会额外上传构建日志（`Build-Logs`）与补丁冲突记录（`Rejects`）供排查。
+### 3. 验证电池（6 项，全过才可交付）
+| # | 检查项 |
+|---|---|
+| 1 | 段内偏移 2512 处两字节 == `MZ` |
+| 2 | 段内 `[2512, 2512+len(Image))` 的 md5 == 新 Image 的 md5 |
+| 3 | 头部 `[0, header_size)` 与官方**逐字节一致** |
+| 4 | 段后 `[header_size+kernel_size, 末)` 与官方**逐字节一致** |
+| 5 | 段内前 2512 字节**全零** |
+| 6 | 段内尾部补零区**全零** |
 
-## 🔧 自定义提交配置
+最后记录产物 `md5 + crc32`，登记至 `G:\ak3\boot\boot.img.md5.txt`（含坏件注记，如 `3d3c32c9 = MZ@0 坏件勿用`）。
 
-通过 [`config/config`](config/config) 文件可以指定 SUSFS 和 SukiSU 使用特定的 commit。
+### 4. 完整脚本（定稿版，可直接运行）
+```python
+import zipfile, struct, hashlib, zlib, shutil, os, sys
 
-**什么是提交 (commit)？**
+sys.stdout.reconfigure(encoding="utf-8")
 
-提交是一串哈希字符串，代表仓库在某个时间点的状态。例如将 SukiSU 设为 `4b8644515fe6d87a109129e590ccd9d33a855dca`，即使用 1 月 30 日的 SukiSU 版本编译内核。
+# ============================================================
+# K70 boot 组装（2512 铁律版 · 定稿）
+# 段内布局 = [2512 字节零][内核 Image 从 +2512 开始][余量补零]
+# 底料 = D 盘官方原件（永远不回写 D；产物唯一落 G:\ak3\boot\boot.img）
+# ============================================================
 
-**为什么要指定提交？**
+ZIP      = r"G:\ak3\2\SukiSU_kernel-android13-5.15-178-AnyKernel3_22.zip"   # ← 换成新产物
+OFFICIAL = r"D:\Tools\K70\1\vermeer_images_OS3.0.9.0.WNKCNXM_16.0\images\boot.img"
+CUR      = r"G:\ak3\boot\boot.img"
+OUT      = r"G:\ak3\boot\boot.img"
+SHIFT    = 2512
 
-- 当上游仓库更新引入 bug 或兼容性问题时，可回退到稳定版本
-- 当 SUSFS 与 SukiSU 版本不同步导致编译失败时，可手动指定兼容的版本
+img = zipfile.ZipFile(ZIP).read("Image")
+print(f"[1] 新内核: {len(img)} B  md5={hashlib.md5(img).hexdigest()}")
 
-**如何获取提交哈希？**
+boot = bytearray(open(OFFICIAL, "rb").read())
+hdr = hashlib.md5(boot[:1584]).hexdigest()
+ks  = struct.unpack("<I", boot[8:12])[0]
+hs  = struct.unpack("<I", boot[20:24])[0]
+print(f"[2] 官方底料: {len(boot)} B | header_size={hs} kernel_size={ks} | 头md5={hdr[:12]}")
 
-- SUSFS：[susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu)（GitLab → Repository → Commits）
-- SukiSU：[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/commits)（GitHub 提交历史页面）
+assert len(img) + SHIFT <= ks, "Image 超容量"
 
-## 🛠️ 安装后推荐
-### 🔧 Xposed 模块
+# 旧 boot 存档（按 md5 前缀命名，与历史备份同规则）
+old = open(CUR, "rb").read()
+old_md5 = hashlib.md5(old).hexdigest().upper()
+bak = CUR + ".bak-" + old_md5[:8]
+if not os.path.exists(bak):
+    shutil.copy2(CUR, bak)
+print(f"[3] 旧件存档: {bak}  (md5={old_md5[:8]}…)")
 
-| 模块 | 说明 |
-|:---:|:---|
-| **FuseFixer** | [Unicode零宽修复模块](https://github.com/5ec1cff/FuseFixer) |
+# 段内重组装
+new_seg = b"\x00" * SHIFT + img + b"\x00" * (ks - SHIFT - len(img))
+boot[hs:hs+ks] = new_seg
+data = bytes(boot)
+open(OUT, "wb").write(data)
+print(f"[4] 输出: {OUT}")
 
-## 🙏 致谢
+# ============ 验证电池 ============
+seg = data[hs:hs+ks]
+ok1 = seg[SHIFT:SHIFT+2] == b"MZ"
+ok2 = hashlib.md5(seg[SHIFT:SHIFT+len(img)]).hexdigest() == hashlib.md5(img).hexdigest()
+ok3 = data[:hs] == open(OFFICIAL, "rb").read()[:hs]
+ok4 = data[hs+ks:] == open(OFFICIAL, "rb").read()[hs+ks:]
+ok5 = all(x == 0 for x in seg[:SHIFT])
+ok6 = all(x == 0 for x in seg[SHIFT+len(img):])
+print(f"[5] MZ@+2512: {ok1} | 段内Image一致: {ok2} | 头逐字节同官方: {ok3} | 段后逐字节同官方: {ok4} | 前2512全零: {ok5} | 尾部补零: {ok6}")
+assert all([ok1, ok2, ok3, ok4, ok5, ok6]), "验证失败!!"
 
-- [osm0sis/AnyKernel3](https://github.com/osm0sis/AnyKernel3)
-- [zzh20188/GKI_KernelSU_SUSFS](https://github.com/zzh20188/GKI_KernelSU_SUSFS) / [WildKernels/GKI_KernelSU_SUSFS](https://github.com/WildKernels/GKI_KernelSU_SUSFS)
-- [SukiSU](https://sukisu.org/) / [BakaSU](https://bakasu.org/)
-- [SUSFS](https://gitlab.com/simonpunk/susfs4ksu)
+md5 = hashlib.md5(data).hexdigest()
+crc = zlib.crc32(data) & 0xFFFFFFFF
+print(f"[6] 定稿: {len(data)} B | md5={md5} | crc32=0x{crc:08x}")
+```
 
-<div align="center">
+**头部字段速查**（Android boot image）：`kernel_size` = LE u32 @8；`header_size` = LE u32 @20（本机官方件实测 `header_size=1584`）。
 
-## ⚠️ 免责声明
+### 5. 刷入与回退
+- **刷入**（机主执行）：`fastboot flash boot <组装的 boot.img>`；**切勿**使用任何 `flash_all_lock` 类回锁命令；
+- **回退**：直接刷任一 `boot.img.bak-*` 备份或官方原件（实测有效）；兜底 = KernelSU 安全模式（开机按住音量下 = 禁用全部模块）；
+- 组装 ≠ 刷入：本仓库流程只负责产出**经 6 项验证**的 boot.img，刷与不刷、哪一版，全部由机主拍板。
 
-</div>
+---
 
-- 刷入内核不会使保修失效，但总有设备变砖的风险请务必:
-- 💾 备份你的数据
-- 🧠 在继续之前，了解风险
+## 四、血泪教训（构建与组装）
 
-- 请务必提前备份该系统的原Boot镜像。
+1. **2512 铁律**：MZ@+0 = 卡米。任何新组装脚本必须先跑「验证电池」全绿再交付；
+2. **唯一产物**：一个文件一个名字（曾因同一字节双命名（boot_v3.img / boot.img）引发混乱）；
+3. **上游不稳**：SUSFS 拉分支 HEAD 曾引入与自家哨兵 patches 撞车的提交 → 已用 **config 钉版 + 独立仓库整份收编**双保险；
+4. **补丁链 e2e**：`git apply` 为原子（一 hunk 失败=整补丁拒绝）；`patch` 后端才有部分应用——断言设计需区分；
+5. **构建红线**：`cancel_susfs` 永远保持 false；构建失败先看 run 页 Summary 与日志 artifact。
 
-- 如果刷入 AnyKernel3 导致设备进入无限启动循环或无法启动，请进入 BootLoader 并重新刷入原Boot镜像。
+---
 
-- 我不对刷写该内核所引发的任何问题负责。
-
-<div align="center">
-  
-# **🚨  请自行承担风险！**
-
-</div>
+*本仓库为私有基础设施：K70 内核构建线 + SELinux 防护补丁 + boot.img 组装方法的唯一权威记录。*
