@@ -1,0 +1,41 @@
+diff --git a/security/selinux/hooks.c b/security/selinux/hooks.c
+index 611960d..981ceb1 100644
+--- a/security/selinux/hooks.c
++++ b/security/selinux/hooks.c
+@@ -6709,18 +6709,27 @@ static int my_setprocattr(const char *name, void *value, size_t size)
+ 		return error;
+ 
+ 	/* Obtain a SID for the context, if one was specified. */
+-	if (size && str[0] && str[0] != '\n') {
+-		if (str[size-1] == '\n') {
+-			str[size-1] = 0;
+-			size--;
+-		}
++	/*
++	 * [v3:setprocattr-avc-align] Skip-path payloads (empty or leading
++	 * newline) are a no-op in the stock handler: sid stays 0 and
++	 * selinux_setprocattr() returns 0 for "current".  Returning here
++	 * directly avoids re-running the stock handler's PROCESS__SETCURRENT
++	 * avc lookup, keeping the AVC lookup count on the reject path
++	 * identical to stock (1, not 2).
++	 */
++	if (!size || !str[0] || str[0] == '\n')
++		return 0;
+ 
+-		error = security_context_to_sid(&fake_state, value, size,
+-						&sid, GFP_KERNEL);
+-		if (error)
+-			return error;
++	if (str[size-1] == '\n') {
++		str[size-1] = 0;
++		size--;
+ 	}
+ 
++	error = security_context_to_sid(&fake_state, value, size,
++					&sid, GFP_KERNEL);
++	if (error)
++		return error;
++
+ 	return selinux_setprocattr(name, value, size);
+ }
+ #endif // #ifdef CONFIG_KSU_SUSFS
