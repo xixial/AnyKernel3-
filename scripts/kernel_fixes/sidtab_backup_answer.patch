@@ -1,0 +1,28 @@
+diff --git a/security/selinux/selinuxfs.c b/security/selinux/selinuxfs.c
+index 9193ebc..0a7757d 100644
+--- a/security/selinux/selinuxfs.c
++++ b/security/selinux/selinuxfs.c
+@@ -1720,7 +1720,22 @@ static ssize_t sel_read_sidtab_hash_stats(struct file *filp, char __user *buf,
+ 	if (!page)
+ 		return -ENOMEM;
+ 
+-	length = security_sidtab_hash_stats(state, page);
++	/* [v5:sidtab-backup-answer] app-side readers must not see the live
++	 * sidtab shape: KernelSU's added types move entries/buckets/chain away
++	 * from what a stock device reports. Answer from KSU's boot-time
++	 * snapshot instead (weak symbol: stock kernels keep the live path).
++	 */
++	if (__kuid_val(current_uid()) >= 10000) {
++		struct selinux_state bstate;
++		struct selinux_state *bst = selinuxfs_backup_state(&bstate);
++
++		if (bst)
++			length = security_sidtab_hash_stats(bst, page);
++		else
++			length = security_sidtab_hash_stats(state, page);
++	} else {
++		length = security_sidtab_hash_stats(state, page);
++	}
+ 	if (length >= 0)
+ 		length = simple_read_from_buffer(buf, count, ppos, page,
+ 						length);
