@@ -603,6 +603,10 @@ jobs:
         working-directory: ${{ env.KERNEL_ROOT }}
         run: bash "$GITHUB_WORKSPACE/scripts/sukisu_compat/apply.sh" KernelSU
 
+      - name: 应用 SELinux 哨兵过滤补丁（Luna 对抗）
+        working-directory: ${{ env.KERNEL_ROOT }}
+        run: bash "$GITHUB_WORKSPACE/scripts/kernel_fixes/apply.sh"
+
       - name: 应用 SUSFS 补丁
         if: inputs.enable_susfs
         working-directory: ${{ env.KERNEL_ROOT }}
