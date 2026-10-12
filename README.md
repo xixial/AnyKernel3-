@@ -27,13 +27,13 @@
 | **cancel_susfs** | **必须保持 false**（红线：勾选=整条 SUSFS 防线摘除） |
 | supp_op / skip_incompatible | 默认 |
 
-**成功标志**（run 页 Summary 四行）：
+**成功标志**（run 页 Summary，v2 现役三行 + 无 v3 行）：
 ```
-✅ 哨兵过滤（deny=7）
+✅ SELinux 哨兵-LITE（deny=5, backup_state=1）
 ✅ sidtab 快照作答（v5）
-✅ setprocattr 计数对齐（v3）
 ✅ mountinfo /adb 过滤（v4）
-日志应现：切换 SUSFS 到自定义提交: 687d2d18…（钉版生效证据）
+（不应出现 v3 行——v3 已随 v2 退役）
+日志应现：切换 SUSFS 到自定义提交: 138a6641…（钉版生效证据）
 ```
 
 **产物**：`SukiSU_kernel-android13-5.15-178-AnyKernel3`（zip，约 23MB）＝ 内含 `Image` 的刷机包。
@@ -44,10 +44,10 @@
 
 | 执行段 | 补丁 | 作用 |
 |---|---|---|
-| `kernel_fixes`（SUSFS **前**） | `selinuxfs_sentinel.patch` | app 侧 selinuxfs 写查询：敏感词过滤 + 备份策略作答（6 写通道） |
-| `kernel_fixes` | `sidtab_backup_answer.patch`（v5） | app 读 `sidtab_hash_stats` 走 KSU 前快照（Luna 抓包实锤的泄漏通道） |
-| `susfs_fixes`（SUSFS **后**） | `setprocattr_avc_align.patch`（v3） | `my_setprocattr` skip-path 的 AVC 查询计数对齐 stock（1/1） |
-| `susfs_fixes` | `mountinfo_adb_filter.patch`（v4） | app 读者看不到 root 含 adb/modules 的 mountinfo 条目 |
+| `kernel_fixes`（SUSFS **前**） | `selinuxfs_sentinel_lite.patch` | **哨兵-LITE**：4 冷门写通道（create/relabel/user/member）词过滤 + 备份状态访问器（context/access 由新版 SUSFS 假账本原生接管） |
+| `kernel_fixes` | `sidtab_backup_answer.patch`（v5） | app 读 `sidtab_hash_stats` 走 KSU 前快照（**Luna 最后泄漏通道·实锤封堵**） |
+| `susfs_fixes`（SUSFS **后**） | `mountinfo_adb_filter.patch`（v4） | app 读者看不到 root 含 adb/modules 的 mountinfo 条目 |
+| （已退役） | ~~`setprocattr_avc_align.patch`（v3）~~ | 2026-10-12 v2 起退役：新版 SUSFS 以「内联假校验」原生消解该计数问题（旧件保留在仓库供回退） |
 
 - 各段脚本特性：**幂等标记 / 应用后断言 / 失败自动回滚（构建不中断）/ 写 GITHUB_STEP_SUMMARY**。
 - **SUSFS 版本钉定**：`config/config` → `custom=true` + `gki-android13-5.15=687d2d18d94cb2e3e72d1074778d58384d58e379`
@@ -61,7 +61,7 @@
 ### 0. 原料
 | 项 | 说明 |
 |---|---|
-| **底料（模板）** | 官方完整刷机包内 `boot.img`：`D:\Tools\K70\1\vermeer_images_OS3.0.9.0.WNKCNXM_16.0\images\boot.img`（**永不回写**；md5 `6626b33239149a3abcbd8f887108472a`）。**本仓库 Releases 页另有存档副本**（`official-baseline-*` 资产，同 md5，供 D 盘不可用时取用） |
+| **底料（模板）** | 官方完整刷机包内 `boot.img`：`D:\Tools\K70\1\vermeer_images_OS3.0.9.0.WNKCNXM_16.0\images\boot.img`（**永不回写**；md5 `6626b33239149a3abcbd8f887108472a`；内核版本 `5.15.178-android13-8-00021-g6f2f96be86b9-ab13729987`，未修改原件） |
 | **新内核** | 构建产物 zip 内的 `Image`（AnyKernel3 zip 根目录） |
 | 环境 | Windows + Python3 标准库（无第三方依赖） |
 
@@ -182,6 +182,8 @@ print(f"[6] 定稿: {len(data)} B | md5={md5} | crc32=0x{crc:08x}")
 | `校验清单_md5.txt` | 人读用整体清单（md5） |
 | `flash_all.bat` / `刷机-带日志.bat` | 刷机脚本（循环含 `flash crclist` / `flash boot_ab` 等） |
 
+> ★ 上述各步骤所用脚本已收入本仓库 **`tools/`** 目录——逐个工具的详细说明见 **`tools/README.md`**。
+
 ### 并入七步
 1. **组装**新 boot.img（第三章 · 2512 铁律 + 六项验证电池全过）；
 2. **原件备份**（回退用）：把 `images\boot.img`、`images\crclist.txt`、`images\sparsecrclist.txt`、`校验清单_md5.txt` 四件复制到他处存档；
@@ -214,3 +216,36 @@ print(f"[6] 定稿: {len(data)} B | md5={md5} | crc32=0x{crc:08x}")
 ---
 
 *本仓库为私有基础设施：K70 内核构建线 + SELinux 防护补丁 + boot.img 组装方法的唯一权威记录。*
+
+---
+
+## 六、v2 收官报告（2026-10-12 · 全项满分验收）
+
+### 6.1 这版做了什么（功能清单）
+| 件 | 功能 | 状态 |
+|---|---|---|
+| **新版 SUSFS**（上游 138a6641） | 假账本四门（context/access/状态页/属性写入的 app 侧作答）+ AVC 审计日志伪装 | ✅ 现役 |
+| **哨兵-LITE** | 4 冷门写通道词过滤 + KSU 前快照访问器（其余交给新版 SUSFS） | ✅ 现役 |
+| **v5（sidtab 快照作答）** | 让 app 读 `sidtab_hash_stats` 得到「KSU 之前」的数字（Luna 最后的泄漏通道） | ✅ 现役·**首秀满贯** |
+| **v4（mountinfo 过滤）** | app 读者看不到含 adb/modules 的挂载条目 | ✅ 现役 |
+| **v3（计数对齐）** | 历史使命完成 | ⌛ 已退役（新版原生消解） |
+| **@Seele 签标** | 内核版本串/管理器显示/构建脚本品牌常量（源头 base64 常量已改签） | ✅ 现役（往后构建自动继承） |
+
+### 6.2 效果（实机验收 · 2026-10-12 上午）
+| 检测器 | 改前 | **v2 实况（刷入 165ef002 后）** |
+|---|---|---|
+| **Luna** | 5/8「高危风险·发现KernelSU」 | **8/8「可信环境」全项满分**（09:23 实况截图为准） |
+| **春秋 NativeCheck** | 6 项异常 | **1 项**（attestation(31)＝文档明示误报族） |
+| **Duck Detector** | 1 危险 + 4 警告 | **0 危险 + 1 警告**（Shared storage baseline＝零权限探针设计噪声） |
+
+### 6.3 战斗工序（值得留档的工程史）
+1. **抓包解剖 Luna**（内核 uprobe 实录）：它经 `app_zygote` 域扫描 selinuxfs——三通道：context/access（SUSFS 假账本挡）+ setprocattr 计数（v3 挡）+ **sidtab_hash_stats（无人管）**；
+2. **造 v5**：app 读统计时改从「KSU 前快照」作答；
+3. **上游撞车事故**（2026-10-12 凌晨）：新版 SUSFS 把假账本逻辑内联进函数，与旧哨兵注入位置重叠 → 构建失败 → **钉版 687d2d18** 保绿 → 哨兵瘦身为 **LITE** 完成适配（本地 e2e 四场景全过含「撞车复现对照」）；
+4. **v2 构建**（#20）→ 六项验证电池组装（`tools/assemble_boot_2512.py`）→ 刷入 → 全表复测；
+5. **@LingLuo → @Seele**：二进制洗标（同长原位替换）+ 源头改签（`scripts/ksu_post_setup.sh` 品牌常量）→ 全仓残留=0。
+
+### 6.4 产物与回退
+- **现役 boot**：`165ef002c3ad26336b0f6fb3f6b957e0`（crc32 0x89bd3a22，100,663,296 B，@Seele 版）；
+- 台账：`G:\ak3\boot\boot.img.md5.txt`（全版本链 + 收官记）；
+- 回退：任一历史 bak（含 Luna 通行版 DD2B88A9）可直接刷回；仓库侧改动=单提交可 revert。
