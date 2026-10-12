@@ -14,10 +14,12 @@
 #                       ③ 失败与成功都写 GITHUB_STEP_SUMMARY。
 # v5 接线（2026-10-12）：新增 sidtab_hash_stats 备份作答段（依赖哨兵先生效；
 #                       哨兵未生效/缺失时 v5 自动跳过并告警，构建不中断）。
+# v2 切换（2026-10-12）：哨兵→哨兵-LITE（撤 context/access 注入以适配新版 SUSFS 内联 hunks；
+#                       断言 deny=5；v3 段同步退役）。
 set -eo pipefail
 
 PKG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PATCH_FILE="$PKG_DIR/selinuxfs_sentinel.patch"
+PATCH_FILE="$PKG_DIR/selinuxfs_sentinel_lite.patch"
 V5_PATCH="$PKG_DIR/sidtab_backup_answer.patch"
 
 if [ -f security/selinux/selinuxfs.c ]; then
@@ -57,14 +59,14 @@ else
   if patch -p1 --forward -d "$KCOMMON" < "$PATCH_FILE"; then
     CT_DENY=$(grep -c 'selinuxfs_deny_query' "$SELFS" || echo 0)
     CT_BAK=$(grep -c 'selinuxfs_backup_state' "$SELFS" || echo 0)
-    if [ "$CT_DENY" -ne 7 ] || [ "$CT_BAK" -lt 3 ]; then
+    if [ "$CT_DENY" -ne 5 ] || [ "$CT_BAK" -lt 1 ]; then
       rollback_and_warn "部分应用（deny=$CT_DENY/7, backup_state=$CT_BAK/3）"
     else
       rm -f "$BAK" "$SELFS.rej" "$SELFS.orig"
-      echo "SELinux 哨兵过滤已应用（deny 命中 $CT_DENY 处：1 定义 + 6 写通道守卫；备份作答标记 $CT_BAK 处）"
+      echo "SELinux 哨兵过滤已应用（deny 命中 $CT_DENY 处：1 定义 + 4 冷门通道守卫；备份作答标记 $CT_BAK 处）"
       if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
         echo "" >> "$GITHUB_STEP_SUMMARY"
-        echo "> ✅ **SELinux 哨兵过滤** 已应用：app 侧 ksu/magisk 词探测按 stock 行为返回 EINVAL（deny=$CT_DENY, backup_state=$CT_BAK）" >> "$GITHUB_STEP_SUMMARY"
+        echo "> ✅ **SELinux 哨兵-LITE** 已应用：4 冷门写通道词过滤（create/relabel/user/member；context/access 由新版 SUSFS 接管）（deny=$CT_DENY, backup_state=$CT_BAK）" >> "$GITHUB_STEP_SUMMARY"
       fi
       SENT_OK=1
     fi
