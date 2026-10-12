@@ -5,6 +5,7 @@
 #   ANDROID_VERSION KERNEL_VERSION KSU_VARIANT OS_PATCH_LEVEL SUB_LEVEL
 #   KERNEL_ROOT SUSFS4KSU KERNEL_PATCHES LEGACY_SUKISU_CONFIG
 # 调用前必须将工作目录设为 $KERNEL_ROOT
+# v2 切换（2026-10-12）：v3 段已退役（新版 SUSFS 内联设计消解双重 AVC 查询；本文件 = SUSFS 主补丁 + v4 段）
 set -eo pipefail
 
 echo "应用 SUSFS 补丁..."
@@ -339,54 +340,6 @@ if [[ "$ANDROID_VERSION" == "android16" && "$KERNEL_VERSION" == "6.12" ]]; then
     && grep -qF 'defined(CONFIG_KSU_MANUAL_HOOK))' "$SETUID_HOOK"; then
     sed -i 's/defined(CONFIG_KSU_MANUAL_HOOK))/!defined(CONFIG_KSU_SUSFS) \&\& defined(CONFIG_KSU_MANUAL_HOOK))/' "$SETUID_HOOK"
     echo "已修复 setuid_hook.c 重复定义问题"
-  fi
-fi
-
-# ============================================================
-# v3: my_setprocattr 的 AVC 计数行为对齐（Luna 对抗 · 内核侧）
-# 背景：SUSFS 的 my_setprocattr 对"空/纯换行载荷"会继续进入 stock 处理器，
-# 导致被拒写入的 PROCESS__SETCURRENT avc 查询次数偏离 stock（2 次 vs 1 次），
-# 该计数指纹可被"AVC lookup 计数实验"识别为"带隐藏的 KernelSU"。
-# 本段把该跳步路径改为直接 no-op 返回，使计数与 stock 一致（权限语义不变）。
-# 幂等：已应用（唯一标记 v3:setprocattr-avc-align）则跳过；
-# 应用失败/部分应用：【自动回滚】并警告跳过（构建不中断）；成功/失败均写 summary。
-# ============================================================
-V3_PATCH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../kernel_fixes/setprocattr_avc_align.patch"
-HOOKS=security/selinux/hooks.c
-if [ ! -f "$HOOKS" ]; then
-  echo "::warning title=setprocattr AVC 对齐已跳过::未找到 $HOOKS"
-elif [ ! -f "$V3_PATCH" ]; then
-  echo "::warning title=setprocattr AVC 对齐已跳过::补丁文件缺失: $V3_PATCH"
-elif grep -q 'v3:setprocattr-avc-align' "$HOOKS"; then
-  echo "setprocattr AVC 对齐已应用，跳过"
-else
-  V3_BAK="$(mktemp)"
-  cp -f "$HOOKS" "$V3_BAK"
-  rm -f "$HOOKS.rej" "$HOOKS.orig"
-  v3_rollback() {
-    cp -f "$V3_BAK" "$HOOKS"
-    rm -f "$V3_BAK" "$HOOKS.rej" "$HOOKS.orig"
-    echo "::warning title=setprocattr AVC 对齐已回滚::$1（构建继续，该修复未生效）"
-    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-      echo "" >> "$GITHUB_STEP_SUMMARY"
-      echo "> ⏪ **setprocattr AVC 对齐** 未生效（$1），已回滚为补丁前原文件（构建未中断）" >> "$GITHUB_STEP_SUMMARY"
-    fi
-  }
-  echo "应用 setprocattr AVC 计数对齐补丁..."
-  if ! patch -p1 --forward < "$V3_PATCH"; then
-    v3_rollback "补丁应用失败（源码上下文不一致）"
-  else
-    V3_CNT=$(grep -c 'v3:setprocattr-avc-align' "$HOOKS" || echo 0)
-    if [ "$V3_CNT" -lt 1 ]; then
-      v3_rollback "部分应用（标记计数 $V3_CNT/1）"
-    else
-      rm -f "$V3_BAK" "$HOOKS.rej" "$HOOKS.orig"
-      echo "setprocattr AVC 计数对齐已应用（标记 $V3_CNT 处）"
-      if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-        echo "" >> "$GITHUB_STEP_SUMMARY"
-        echo "> ✅ **setprocattr AVC 计数对齐（v3）** 已应用：skip-path 写入的 avc 查询计数与 stock 一致（1/1）" >> "$GITHUB_STEP_SUMMARY"
-      fi
-    fi
   fi
 fi
 
