@@ -1,5 +1,0 @@
-device=vermeer
-build_number=OS3.0.9.0.WNKCNXM
-userdata_version=20260126.0000.00
-mi_os_build_version=OS3.0.9.0.WNKCNXM
-custom_bulid_number=vermeer.cn.1.1.0157
