@@ -59,20 +59,34 @@ else
   echo "lsm_hook.c 不存在或无需 lsm_id 兼容补丁，跳过"
 fi
 
-SUPER_FILE="$KSU_DIR/kernel/kpm/super_access.c"
-if [ -f "$SUPER_FILE" ] && grep -q 'DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)' "$SUPER_FILE"; then
-  if grep -q 'KERNEL_VERSION(6, 11, 0)' "$SUPER_FILE"; then
-    echo "super_access.c 已包含 cb_mutex 版本守卫，跳过"
+# 位置随上游重构迁移过（kernel/kpm/ -> kernel/extension/kpm/），按实际路径定位，
+# 避免守卫路径写死导致补丁静默跳过（6.12 会因此直接编译失败）
+SUPER_REL=""
+for cand in kernel/extension/kpm/super_access.c kernel/kpm/super_access.c; do
+  if [ -f "$KSU_DIR/$cand" ]; then
+    SUPER_REL="$cand"
+    break
+  fi
+done
+if [ -z "$SUPER_REL" ] && [ -d "$KSU_DIR/kernel" ]; then
+  SUPER_REL="$(cd "$KSU_DIR" && find kernel -type f -name super_access.c -path '*kpm*' 2>/dev/null | head -n 1)"
+fi
+
+if [ -n "$SUPER_REL" ] && grep -q 'DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)' "$KSU_DIR/$SUPER_REL"; then
+  if grep -q 'KERNEL_VERSION(6, 11, 0)' "$KSU_DIR/$SUPER_REL"; then
+    echo "$SUPER_REL 已包含 cb_mutex 版本守卫，跳过"
   else
-    echo "应用 cb_mutex 兼容补丁 (6.11+ 移除 netlink_kernel_cfg.cb_mutex)..."
-    patch -p1 --forward -d "$KSU_DIR" < "$COMPAT_DIR/sukisu-cb-mutex-6.11.patch" \
+    echo "应用 cb_mutex 兼容补丁 (6.11+ 移除 netlink_kernel_cfg.cb_mutex, 目标 $SUPER_REL)..."
+    # 补丁头固定为旧路径 kernel/kpm/，这里改写为实际路径后应用
+    sed -e "s|kernel/kpm/super_access.c|$SUPER_REL|g" "$COMPAT_DIR/sukisu-cb-mutex-6.11.patch" \
+      | patch -p1 --forward -d "$KSU_DIR" \
       || fail "cb_mutex 兼容补丁应用失败（SukiSU 上游代码可能已变化）"
-    grep -q 'KERNEL_VERSION(6, 11, 0)' "$SUPER_FILE" \
+    grep -q 'KERNEL_VERSION(6, 11, 0)' "$KSU_DIR/$SUPER_REL" \
       || fail "cb_mutex 兼容补丁应用后校验失败"
-    echo "super_access.c: 6.11+ 已跳过 cb_mutex 成员"
+    echo "$SUPER_REL: 6.11+ 已跳过 cb_mutex 成员"
   fi
 else
-  echo "super_access.c 不存在或无需 cb_mutex 兼容补丁，跳过"
+  echo "未找到 kpm/super_access.c 或无需 cb_mutex 兼容补丁，跳过"
 fi
 
 # builtin 分支 2026-10-05 同步官方 KernelSU（70fa0e092）后，
@@ -146,8 +160,17 @@ if [ -f "$LSM_FILE" ] && grep -q 'handle_zygote_setresuid' "$LSM_FILE"; then
       || fail "seccomp 过滤模式补丁应用失败（SukiSU builtin 上游代码可能已变化）"
     grep -q 'ksu_seccomp_allow_cache' "$LSM_FILE" \
       || fail "seccomp 过滤模式补丁应用后校验失败 (lsm_hook.c)"
-    grep -q '#include "infra/seccomp_cache.c"' "$KSU_DIR/kernel/ksu.c" \
-      || fail "seccomp 过滤模式补丁应用后校验失败 (ksu.c)"
+    # 聚合编译文件随上游重构更名（kernel/ksu.c -> kernel/ksu_main.c），按实际路径校验
+    KSU_AGG=""
+    for cand in kernel/ksu.c kernel/ksu_main.c; do
+      if [ -f "$KSU_DIR/$cand" ]; then
+        KSU_AGG="$KSU_DIR/$cand"
+        break
+      fi
+    done
+    if [ -z "$KSU_AGG" ] || ! grep -q '#include "infra/seccomp_cache.c"' "$KSU_AGG"; then
+      fail "seccomp 过滤模式补丁应用后校验失败 (聚合编译文件 ksu.c/ksu_main.c)"
+    fi
     grep -q '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)' "$KSU_DIR/kernel/infra/seccomp_cache.c" \
       || fail "seccomp_cache.c 版本守卫校验失败"
     echo "seccomp 过滤模式已启用：管理器首页 Seccomp 状态将显示\"过滤模式\""
