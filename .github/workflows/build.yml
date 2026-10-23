@@ -1500,8 +1500,13 @@ jobs:
           # 2026-10-23 修正：patch_linux 内嵌 kpimg 为空壳（version 0/无编译时间），
           # 打出的内核启动即死（卡 Redmi）。改用官方 kptools + kpimg 显式重打。
           KPM_SKIP=0
-          cp -f "$SUKISU_PATCHES/kpm/kptools" ./kptools && chmod +x ./kptools || KPM_SKIP=1
-          cp -f "$SUKISU_PATCHES/kpm/kpimg" ./kpimg || KPM_SKIP=1
+          # 2026-10-23 修正：CI 里 clone 下来的 kpm 二进制会 Exec format error，
+          # 改为直接从 raw 拉取同源文件（与本地验证过的字节一致）。
+          curl -LsS --max-time 120 -o ./kptools "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kptools" && chmod +x ./kptools || KPM_SKIP=1
+          curl -LsS --max-time 120 -o ./kpimg "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kpimg" || KPM_SKIP=1
+          if [ "$KPM_SKIP" -eq 0 ]; then
+            [ -s ./kptools ] && [ -s ./kpimg ] || KPM_SKIP=1
+          fi
           if [ "$KPM_SKIP" -eq 0 ]; then
             ./kptools -p -i ./Image -k ./kpimg -o ./oImage || KPM_SKIP=1
           fi
