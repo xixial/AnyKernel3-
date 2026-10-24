@@ -1526,22 +1526,35 @@ jobs:
               KPM_SKIP=1
             fi
           fi
+          QEMU=""
           if [ "$KPM_SKIP" -eq 0 ]; then
             chmod +x ./kptools
             if ! command -v qemu-aarch64-static >/dev/null 2>&1; then
               echo "安装 qemu-user-static（kptools 为 AArch64，需转译）..."
-              (sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static) || true
+              sudo apt-get update || true
+              sudo apt-get install -y --no-install-recommends qemu-user-static || true
             fi
-            command -v qemu-aarch64-static >/dev/null 2>&1 || { echo "qemu-aarch64-static 不可用"; KPM_SKIP=1; }
+            if command -v qemu-aarch64-static >/dev/null 2>&1; then
+              QEMU=$(command -v qemu-aarch64-static)
+            else
+              echo "apt 不可用，改下载静态 qemu（multiarch release）..."
+              curl -LsS --max-time 180 -o ./qemu-aarch64-static "https://github.com/multiarch/qemu-user-static/releases/download/v7.2.0-1/qemu-aarch64-static" || true
+              if [ -s ./qemu-aarch64-static ]; then
+                chmod +x ./qemu-aarch64-static
+                ./qemu-aarch64-static --version >/dev/null 2>&1 && QEMU=./qemu-aarch64-static
+              fi
+            fi
+            [ -n "$QEMU" ] || { echo "qemu-aarch64-static 不可用"; KPM_SKIP=1; }
           fi
+          echo "使用转译器: ${QEMU}"
           if [ "$KPM_SKIP" -eq 0 ]; then
-            qemu-aarch64-static ./kptools -p -i ./Image -k ./kpimg -o ./oImage || KPM_SKIP=1
+            "$QEMU" ./kptools -p -i ./Image -k ./kpimg -o ./oImage || KPM_SKIP=1
           fi
           if [ "$KPM_SKIP" -eq 0 ] && [ ! -f ./oImage ]; then
             echo "未生成 oImage"; KPM_SKIP=1
           fi
           if [ "$KPM_SKIP" -eq 0 ]; then
-            qemu-aarch64-static ./kptools -l -i ./oImage | grep -q 'patched=true' || { echo "校验 patched=true 失败"; KPM_SKIP=1; }
+            "$QEMU" ./kptools -l -i ./oImage | grep -q 'patched=true' || { echo "校验 patched=true 失败"; KPM_SKIP=1; }
           fi
           if [ "$KPM_SKIP" -ne 0 ]; then
             if [ "$SKIP_INCOMPATIBLE" = "true" ]; then
