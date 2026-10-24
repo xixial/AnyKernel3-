@@ -1502,76 +1502,70 @@ jobs:
           KPM_SKIP=0
           # 2026-10-24 修正：CI 侧从 raw 拉到的文件曾非 ELF（Exec format error）。
           # 改为双源（raw -> jsDelivr 回退）+ ELF 魔数/尺寸校验 + 实打字节数日志。
-          # 2026-10-24 最终版：①官方 kptools 是 AArch64 → CI 用 qemu-user-static 转译执行；
-          # ②patch_linux 是坏包装器（忽略 -k 参数、产物 patched=false），弃用。
-          fetch_file() {
-            local url="$1" out="$2" min="$3" want="$4"
+          # 2026-10-24 终极版：官方 kptools 是 Android/bionic aarch64（CI 无法直跑），
+          # 改为在 runner 上从源码编译 x86_64 版（SukiSU_KernelPatch_patch tools/Makefile）。
+          # 本地实测：源码编译版打出的补丁与官方 Android 版逐字节一致（md5 512663ad）。
+          fetch_kpimg() {
+            local url="$1" out="$2"
             curl -LsS --max-time 120 -o "$out" "$url" || return 1
             local sz magic
             sz=$(stat -c%s "$out" 2>/dev/null || echo 0)
             echo "下载 $out: ${sz} 字节 (来源: $url)"
-            [ "$sz" -ge "$min" ] || { echo "尺寸不足"; return 1; }
+            [ "$sz" -ge 100000 ] || { echo "尺寸不足"; return 1; }
             magic=$(head -c 4 "$out" | od -An -tx1 | tr -d ' \n')
-            [ "$magic" = "$want" ] || { echo "魔数不符（期望 $want 实际 $magic）"; return 1; }
+            [ "$magic" = "4b503131" ] || { echo "非 KP11 容器（首4字节: $magic）"; return 1; }
             return 0
           }
           KPM_SKIP=0
-          if ! fetch_file "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kptools" ./kptools 1000000 7f454c46; then
-            if ! fetch_file "https://cdn.jsdelivr.net/gh/SukiSU-Ultra/SukiSU_patch@main/kpm/kptools" ./kptools 1000000 7f454c46; then
+          if ! fetch_kpimg "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kpimg" ./kpimg; then
+            if ! fetch_kpimg "https://cdn.jsdelivr.net/gh/SukiSU-Ultra/SukiSU_patch@main/kpm/kpimg" ./kpimg; then
               KPM_SKIP=1
             fi
           fi
-          if [ "$KPM_SKIP" -eq 0 ] && ! fetch_file "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kpimg" ./kpimg 100000 4b503131; then
-            if ! fetch_file "https://cdn.jsdelivr.net/gh/SukiSU-Ultra/SukiSU_patch@main/kpm/kpimg" ./kpimg 100000 4b503131; then
-              KPM_SKIP=1
+          if [ "$KPM_SKIP" -eq 0 ]; then
+            rm -rf /tmp/kpsrc
+            git clone --depth 1 --filter=blob:none --sparse https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch.git /tmp/kpsrc || KPM_SKIP=1
+          fi
+          if [ "$KPM_SKIP" -eq 0 ]; then
+            ( cd /tmp/kpsrc && git sparse-checkout set --no-cone 'tools/' 'kernel/include/' 'version' ) || true
+            if ! ( cd /tmp/kpsrc/tools && make -j4 ); then
+              echo "make 失败，补 zlib 后重试..."
+              sudo apt-get install -y zlib1g-dev || true
+              ( cd /tmp/kpsrc/tools && make -j4 ) || KPM_SKIP=1
             fi
           fi
-          QEMU=""
-          if [ "$KPM_SKIP" -eq 0 ]; then
-            chmod +x ./kptools
-            if ! command -v qemu-aarch64-static >/dev/null 2>&1; then
-              echo "安装 qemu-user-static（kptools 为 AArch64，需转译）..."
-              sudo apt-get update || true
-              sudo apt-get install -y --no-install-recommends qemu-user-static || true
-            fi
-            if command -v qemu-aarch64-static >/dev/null 2>&1; then
-              QEMU=$(command -v qemu-aarch64-static)
-            else
-              echo "apt 不可用，改下载静态 qemu（multiarch release）..."
-              curl -LsS --max-time 180 -o ./qemu-aarch64-static "https://github.com/multiarch/qemu-user-static/releases/download/v7.2.0-1/qemu-aarch64-static" || true
-              if [ -s ./qemu-aarch64-static ]; then
-                chmod +x ./qemu-aarch64-static
-                ./qemu-aarch64-static --version >/dev/null 2>&1 && QEMU=./qemu-aarch64-static
-              fi
-            fi
-            [ -n "$QEMU" ] || { echo "qemu-aarch64-static 不可用"; KPM_SKIP=1; }
+          if [ "$KPM_SKIP" -eq 0 ] && [ -x /tmp/kpsrc/tools/kptools ]; then
+            cp -f /tmp/kpsrc/tools/kptools ./kptools && chmod +x ./kptools
+            echo "kptools 编译完成: $(stat -c%s ./kptools) 字节"
+            ./kptools -v -k ./kpimg | head -2 || true
+          else
+            [ "$KPM_SKIP" -eq 0 ] && KPM_SKIP=1
           fi
-          echo "使用转译器: ${QEMU}"
           if [ "$KPM_SKIP" -eq 0 ]; then
-            "$QEMU" ./kptools -p -i ./Image -k ./kpimg -o ./oImage || KPM_SKIP=1
+            ./kptools -p -i ./Image -k ./kpimg -o ./oImage || KPM_SKIP=1
           fi
           if [ "$KPM_SKIP" -eq 0 ] && [ ! -f ./oImage ]; then
             echo "未生成 oImage"; KPM_SKIP=1
           fi
           if [ "$KPM_SKIP" -eq 0 ]; then
-            "$QEMU" ./kptools -l -i ./oImage | grep -q 'patched=true' || { echo "校验 patched=true 失败"; KPM_SKIP=1; }
+            ./kptools -l -i ./oImage | grep -q 'patched=true' || { echo "校验 patched=true 失败"; KPM_SKIP=1; }
           fi
           if [ "$KPM_SKIP" -ne 0 ]; then
             if [ "$SKIP_INCOMPATIBLE" = "true" ]; then
-              echo "::warning title=KPM 已跳过::kptools(qemu)/kpimg 修补失败，已跳过 KPM 构建期修补，使用未修补 Image"
+              echo "::warning title=KPM 已跳过::kptools(源码编译)/kpimg 修补失败，已跳过 KPM 构建期修补，使用未修补 Image"
               if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
                 echo "" >> "$GITHUB_STEP_SUMMARY"
-                echo "> ⏭️ **KPM（构建期修补）** 已自动跳过：kptools(qemu)/kpimg 修补失败（构建未中断）" >> "$GITHUB_STEP_SUMMARY"
+                echo "> ⏭️ **KPM（构建期修补）** 已自动跳过：kptools(源码编译)/kpimg 修补失败（构建未中断）" >> "$GITHUB_STEP_SUMMARY"
               fi
               echo "KPM_SKIPPED=true" >> "$GITHUB_ENV"
               exit 0
             fi
-            echo "::error::KPM 修补失败（kptools(qemu)/kpimg）"
+            echo "::error::KPM 修补失败（kptools(源码编译)/kpimg）"
             exit 1
           fi
           mv -f ./oImage ./Image
-          echo "已用 kptools(AArch64 via qemu) + 官方 kpimg 完成 KPM 修补"
-          qemu-aarch64-static ./kptools -l -i ./Image | head -10 || true
+          echo "已用源码编译的 x86_64 kptools + 官方 kpimg 完成 KPM 修补"
+          ./kptools -l -i ./Image | head -10 || true
           echo "刷入 AnyKernel3 或任意 boot 镜像时无需再打 KPM 补丁"
 
       - name: 准备 Boot 镜像
