@@ -1500,12 +1500,31 @@ jobs:
           # 2026-10-23 修正：patch_linux 内嵌 kpimg 为空壳（version 0/无编译时间），
           # 打出的内核启动即死（卡 Redmi）。改用官方 kptools + kpimg 显式重打。
           KPM_SKIP=0
-          # 2026-10-23 修正：CI 里 clone 下来的 kpm 二进制会 Exec format error，
-          # 改为直接从 raw 拉取同源文件（与本地验证过的字节一致）。
-          curl -LsS --max-time 120 -o ./kptools "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kptools" && chmod +x ./kptools || KPM_SKIP=1
-          curl -LsS --max-time 120 -o ./kpimg "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kpimg" || KPM_SKIP=1
-          if [ "$KPM_SKIP" -eq 0 ]; then
-            [ -s ./kptools ] && [ -s ./kpimg ] || KPM_SKIP=1
+          # 2026-10-24 修正：CI 侧从 raw 拉到的文件曾非 ELF（Exec format error）。
+          # 改为双源（raw -> jsDelivr 回退）+ ELF 魔数/尺寸校验 + 实打字节数日志。
+          fetch_tool() {
+            local url="$1" out="$2" min="$3"
+            curl -LsS --max-time 120 -o "$out" "$url" || return 1
+            local sz
+            sz=$(stat -c%s "$out" 2>/dev/null || echo 0)
+            echo "下载 $out: ${sz} 字节 (来源: $url)"
+            [ "$sz" -ge "$min" ] || { echo "尺寸不足（< $min）"; return 1; }
+            local magic
+            magic=$(head -c 4 "$out" | od -An -tx1 | tr -d ' \n')
+            [ "$magic" = "7f454c46" ] || { echo "非 ELF 文件（首4字节: $magic）"; return 1; }
+            return 0
+          }
+          KPM_SKIP=0
+          if ! fetch_tool "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kptools" ./kptools 1000000; then
+            if ! fetch_tool "https://cdn.jsdelivr.net/gh/SukiSU-Ultra/SukiSU_patch@main/kpm/kptools" ./kptools 1000000; then
+              KPM_SKIP=1
+            fi
+          fi
+          if [ "$KPM_SKIP" -eq 0 ]; then chmod +x ./kptools; fi
+          if [ "$KPM_SKIP" -eq 0 ] && ! fetch_tool "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kpimg" ./kpimg 100000; then
+            if ! fetch_tool "https://cdn.jsdelivr.net/gh/SukiSU-Ultra/SukiSU_patch@main/kpm/kpimg" ./kpimg 100000; then
+              KPM_SKIP=1
+            fi
           fi
           if [ "$KPM_SKIP" -eq 0 ]; then
             ./kptools -p -i ./Image -k ./kpimg -o ./oImage || KPM_SKIP=1
