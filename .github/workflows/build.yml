@@ -1502,60 +1502,53 @@ jobs:
           KPM_SKIP=0
           # 2026-10-24 修正：CI 侧从 raw 拉到的文件曾非 ELF（Exec format error）。
           # 改为双源（raw -> jsDelivr 回退）+ ELF 魔数/尺寸校验 + 实打字节数日志。
-          # 2026-10-24 修正：魔数按文件各自校验——kptools 是 ELF(7f454c46)，
-          # kpimg 是 KernelPatch 镜像 KP11 容器(4b503131)，此前误用 ELF 校验把 kpimg 误杀。
-          fetch_tool() {
-            local url="$1" out="$2" min="$3" want="$4"
+          # 2026-10-24 最终修正：官方 kptools 是 AArch64 版（CI x86_64 跑不了=Exec format error），
+          # 仓库自带的 patch_linux 是 x86_64 且支持完整参数（-p/-k/-l），改为：
+          # patcher 用 patch_linux（克隆自带），kpimg 从 raw 拉取（KP11 魔数校验）。
+          fetch_kpimg() {
+            local url="$1" out="$2"
             curl -LsS --max-time 120 -o "$out" "$url" || return 1
-            local sz
+            local sz magic
             sz=$(stat -c%s "$out" 2>/dev/null || echo 0)
             echo "下载 $out: ${sz} 字节 (来源: $url)"
-            [ "$sz" -ge "$min" ] || { echo "尺寸不足（< $min）"; return 1; }
-            local magic
+            [ "$sz" -ge 100000 ] || { echo "尺寸不足"; return 1; }
             magic=$(head -c 4 "$out" | od -An -tx1 | tr -d ' \n')
-            [ "$magic" = "$want" ] || { echo "魔数不符（期望 $want，实际 $magic）"; return 1; }
+            [ "$magic" = "4b503131" ] || { echo "非 KP11 容器（首4字节: $magic）"; return 1; }
             return 0
           }
           KPM_SKIP=0
-          if ! fetch_tool "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kptools" ./kptools 1000000 7f454c46; then
-            if ! fetch_tool "https://cdn.jsdelivr.net/gh/SukiSU-Ultra/SukiSU_patch@main/kpm/kptools" ./kptools 1000000 7f454c46; then
-              KPM_SKIP=1
-            fi
+          cp -f "$SUKISU_PATCHES/kpm/patch_linux" ./patch_linux && chmod +x ./patch_linux || KPM_SKIP=1
+          if [ "$KPM_SKIP" -eq 0 ]; then
+            head -c 4 ./patch_linux | od -An -tx1 | tr -d ' \n' | grep -q '7f454c46' || { echo "patch_linux 非 ELF"; KPM_SKIP=1; }
           fi
-          if [ "$KPM_SKIP" -eq 0 ]; then chmod +x ./kptools; fi
-          if [ "$KPM_SKIP" -eq 0 ] && ! fetch_tool "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kpimg" ./kpimg 100000 4b503131; then
-            if ! fetch_tool "https://cdn.jsdelivr.net/gh/SukiSU-Ultra/SukiSU_patch@main/kpm/kpimg" ./kpimg 100000 4b503131; then
+          if [ "$KPM_SKIP" -eq 0 ] && ! fetch_kpimg "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/main/kpm/kpimg" ./kpimg; then
+            if ! fetch_kpimg "https://cdn.jsdelivr.net/gh/SukiSU-Ultra/SukiSU_patch@main/kpm/kpimg" ./kpimg; then
               KPM_SKIP=1
             fi
           fi
           if [ "$KPM_SKIP" -eq 0 ]; then
-            ./kptools -p -i ./Image -k ./kpimg -o ./oImage || KPM_SKIP=1
+            ./patch_linux -p -i ./Image -k ./kpimg || KPM_SKIP=1
           fi
+          if [ "$KPM_SKIP" -eq 0 ] && [ ! -f ./oImage ]; then KPM_SKIP=1; fi
           if [ "$KPM_SKIP" -eq 0 ]; then
-            ./kptools -l -i ./oImage | grep -q 'patched=true' || KPM_SKIP=1
+            ./patch_linux -l -i ./oImage | grep -q 'patched=true' || KPM_SKIP=1
           fi
           if [ "$KPM_SKIP" -ne 0 ]; then
             if [ "$SKIP_INCOMPATIBLE" = "true" ]; then
-              echo "::warning title=KPM 已跳过::kptools/kpimg 修补失败（工具或内核不适配），已跳过 KPM 构建期修补，使用未修补 Image"
+              echo "::warning title=KPM 已跳过::patch_linux/kpimg 修补失败（工具或内核不适配），已跳过 KPM 构建期修补，使用未修补 Image"
               if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
                 echo "" >> "$GITHUB_STEP_SUMMARY"
-                echo "> ⏭️ **KPM（构建期修补）** 已自动跳过：kptools/kpimg 修补失败（构建未中断）" >> "$GITHUB_STEP_SUMMARY"
+                echo "> ⏭️ **KPM（构建期修补）** 已自动跳过：patch_linux/kpimg 修补失败（构建未中断）" >> "$GITHUB_STEP_SUMMARY"
               fi
               echo "KPM_SKIPPED=true" >> "$GITHUB_ENV"
               exit 0
             fi
-            echo "::error::KPM 修补失败（kptools/kpimg）"
+            echo "::error::KPM 修补失败（patch_linux/kpimg）"
             exit 1
           fi
           mv -f ./oImage ./Image
-          echo "已用 kptools + 官方 kpimg 在构建期完成 KPM 修补"
-          ./kptools -l -i ./Image | head -8 || true
-
-          # 用修补后的 Image 重新生成 lz4，保证 boot-lz4 变体同样支持 KPM
-          if [ -f ./Image.lz4 ]; then
-            lz4 -f -9 --content-size ./Image ./Image.lz4
-            echo "已用修补后的 Image 重新生成 Image.lz4"
-          fi
+          echo "已用 patch_linux(x86_64) + 官方 kpimg 完成 KPM 修补"
+          ./patch_linux -l -i ./Image | head -8 || true
           echo "刷入 AnyKernel3 或任意 boot 镜像时无需再打 KPM 补丁"
 
       - name: 准备 Boot 镜像
