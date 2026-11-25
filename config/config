@@ -18,7 +18,9 @@ custom=true
 # ==================== SUSFS 各分支的 commit hash ====================
 # 仅当 custom=true 时生效
 gki-android12-5.10=
-gki-android13-5.15=86b5b10068459dedb545dc5db46a0f0254428eda
+# 2026-11-25 跟进上游：86b5b100(10-19) -> c1d1da42(11-15, kernel & KernelSU: Sync with upstream)
+# 同批还含 95cfbcb(sus_path_uid_filter 新特性)、9da0b0e(header gate 修复)
+gki-android13-5.15=c1d1da42b74771944207ec45aaceff9c57e84985
 gki-android14-6.1=
 gki-android15-6.6=
 gki-android16-6.12=
