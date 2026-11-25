@@ -473,23 +473,6 @@ jobs:
             "SukiSU")
               echo "添加 ${{ inputs.ksu_variant }}..."
               curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash $BRANCH
-              # ---- 版本号兼容覆盖（2026-11-25）----
-              # SukiSU-Nova 把 kernel/Kbuild 的 VERSION_BASE 由 40000 改为 30000、
-              # VERSION_OFFSET 改为 996，导致 versionCode 变成 35xxx，
-              # 低于旧管理器 41064 → 管理器提示「内核版本过低」。
-              # 这里把 KSU_VERSION 固定回旧编号语义（40000 + 提交数 - 2815 = 41289），
-              # 使 versionCode 高于 41064，管理器不再报不匹配。
-              __KSUVF=""
-              for __f in KernelSU/kernel/Kbuild KernelSU/kernel/Makefile; do
-                if [ -f "$__f" ]; then __KSUVF="$__f"; break; fi
-              done
-              if [ -n "$__KSUVF" ] && grep -qE '^KSU_VERSION[[:space:]]*:=' "$__KSUVF"; then
-                sed -i -E 's|^KSU_VERSION[[:space:]]*:=.*|KSU_VERSION     := 41289|' "$__KSUVF"
-                echo "已覆盖 $__KSUVF 的 KSU_VERSION → 41289（恢复旧管理器编号语义）"
-                grep -E '^KSU_VERSION[[:space:]]*:=' "$__KSUVF" || true
-              else
-                echo "::warning::未找到 KSU_VERSION 定义，版本覆盖跳过"
-              fi
               # 内核侧 KSU 版本来源对齐官方最新上传 Manager 构建：
               # SukiSU 版本号 = 40000 + REPO_BRANCH 指向分支的提交数 - 2815
               #（main 分支定义在 kernel/Kbuild，builtin 分支定义在 kernel/Makefile，
