@@ -407,3 +407,13 @@ for SUSFS_SRC in fs/proc/task_mmu.c fs/namespace.c; do
     exit 1
   fi
 done
+
+# ---- selinux status sequence 同步（2026-11-25）----
+# SUSFS 在 selinux_status_update_policyload 的 KSU 域分支里只写 policyload、
+# 跳过 sequence++，导致 status.sequence 恒为 0 而 policyload 持续增长（实测 0/7）。
+# 春秋 Native check 的 "access seqno" 规则比对的正是这两个字段。
+if [ -f "security/selinux/status.c" ]; then
+  python3 "$SCRIPT_DIR/sync_selinux_status_seqno.py" security/selinux/status.c \
+    || echo "::warning::sequence 同步脚本执行失败（构建继续）"
+fi
+
